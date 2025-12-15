@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -94,6 +95,24 @@ public partial class MainWindow : Window
                     _isSelectingMatch = false;
                 }
             }
+        }
+    }
+
+    private void OnMarkdownBlockContainerPrepared(object? sender, ContainerPreparedEventArgs e)
+    {
+        // Find MarkdownBlockControl in the visual tree
+        var control = e.Container.GetVisualDescendants().OfType<MarkdownBlockControl>().FirstOrDefault();
+        if (control != null)
+        {
+            control.NavigateToDocumentRequested += OnNavigateToDocument;
+        }
+    }
+
+    private void OnNavigateToDocument(string documentId)
+    {
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.NavigateToDocument(documentId);
         }
     }
 

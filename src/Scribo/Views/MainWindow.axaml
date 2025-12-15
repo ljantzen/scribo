@@ -185,17 +185,30 @@
                                       DataContext="{Binding FindReplaceViewModel}"/>
                 
                 <!-- Source Mode: TextBox -->
-                <TextBox Grid.Row="1"
-                         x:Name="sourceTextBox"
-                         Text="{Binding EditorText, Mode=TwoWay}"
-                         AcceptsReturn="True"
-                         AcceptsTab="True"
-                         TextWrapping="Wrap"
-                         FontFamily="Consolas"
-                         FontSize="14"
-                         Padding="10"
-                         IsVisible="{Binding IsSourceMode}"
-                         GotFocus="OnEditorTextBoxGotFocus"/>
+                <Grid Grid.Row="1" IsVisible="{Binding IsSourceMode}">
+                    <TextBox x:Name="sourceTextBox"
+                             Text="{Binding EditorText, Mode=TwoWay}"
+                             AcceptsReturn="True"
+                             AcceptsTab="True"
+                             TextWrapping="Wrap"
+                             FontFamily="Consolas"
+                             FontSize="14"
+                             Padding="10"
+                             GotFocus="OnEditorTextBoxGotFocus"
+                             TextChanged="OnEditorTextChanged"
+                             KeyDown="OnEditorKeyDown"/>
+                    
+                    <!-- Autocomplete Popup -->
+                    <Popup x:Name="autocompletePopup"
+                          IsOpen="{Binding DocumentLinkAutocompleteViewModel.IsVisible}"
+                          PlacementTarget="{Binding #sourceTextBox}"
+                          PlacementMode="Bottom"
+                          HorizontalOffset="0"
+                          VerticalOffset="0">
+                        <views:DocumentLinkAutocompletePopup 
+                            DataContext="{Binding DocumentLinkAutocompleteViewModel}"/>
+                    </Popup>
+                </Grid>
                 
                 <!-- Preview Mode: ScrollViewer with formatted markdown -->
                 <ScrollViewer x:Name="previewScrollViewer"
@@ -205,7 +218,9 @@
                               Background="White">
                     <Border Background="White"
                             Padding="20">
-                        <ItemsControl ItemsSource="{Binding RenderedMarkdownBlocks}">
+                        <ItemsControl x:Name="markdownItemsControl"
+                                     ItemsSource="{Binding RenderedMarkdownBlocks}"
+                                     ContainerPrepared="OnMarkdownBlockContainerPrepared">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Orientation="Vertical"/>
@@ -213,17 +228,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Margin="0,4"
-                                            Padding="{Binding Padding}"
-                                            Background="{Binding Background}">
-                                        <TextBlock TextWrapping="Wrap"
-                                                   FontSize="{Binding FontSize}"
-                                                   FontWeight="{Binding FontWeight}"
-                                                   FontFamily="{Binding FontFamily}"
-                                                   Foreground="Black"
-                                                   Text="{Binding DisplayText}">
-                                        </TextBlock>
-                                    </Border>
+                                    <views:MarkdownBlockControl/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

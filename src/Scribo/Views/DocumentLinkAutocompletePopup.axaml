@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Scribo.ViewModels"
+             xmlns:models="using:Scribo.Models"
+             x:Class="Scribo.Views.DocumentLinkAutocompletePopup"
+             x:DataType="vm:DocumentLinkAutocompleteViewModel">
+    <Border Background="White"
+            BorderBrush="#CCCCCC"
+            BorderThickness="1"
+            CornerRadius="4"
+            BoxShadow="0 2 8 0 #00000040"
+            MaxHeight="300"
+            MinWidth="300">
+        <ListBox ItemsSource="{Binding Suggestions}"
+                 SelectedIndex="{Binding SelectedIndex}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 SelectionMode="Single">
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="models:Document">
+                    <Border Padding="8,4"
+                           Background="Transparent">
+                        <TextBlock Text="{Binding Title}"
+                                  FontSize="14"
+                                  Foreground="Black"/>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+            <ListBox.ItemContainerTheme>
+                <ControlTheme TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Style Selector=":pointerover">
+                        <Setter Property="Background" Value="#E0E0E0"/>
+                    </Style>
+                    <Style Selector=":selected">
+                        <Setter Property="Background" Value="#0078D4"/>
+                        <Setter Property="Foreground" Value="White"/>
+                    </Style>
+                </ControlTheme>
+            </ListBox.ItemContainerTheme>
+        </ListBox>
+    </Border>
+</UserControl>

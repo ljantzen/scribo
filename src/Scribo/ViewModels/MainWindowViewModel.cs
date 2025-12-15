@@ -24,6 +24,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ProjectService _projectService;
     private readonly MostRecentlyUsedService _mruService;
     private readonly SearchIndexService _searchIndexService;
+    private readonly DocumentLinkService _documentLinkService;
     private FileDialogService? _fileDialogService;
     private Window? _parentWindow;
     private SearchWindow? _searchWindow;
@@ -86,6 +87,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private FindReplaceViewModel findReplaceViewModel = new();
 
+    [ObservableProperty]
+    private DocumentLinkAutocompleteViewModel documentLinkAutocompleteViewModel = new();
+
     private Project? _currentProject;
     private DispatcherTimer? _idleTimer;
     private DateTime _lastActivityTime = DateTime.Now;
@@ -98,10 +102,36 @@ public partial class MainWindowViewModel : ViewModelBase
         _projectService = projectService ?? new ProjectService();
         _mruService = mruService ?? new MostRecentlyUsedService();
         _searchIndexService = searchIndexService ?? new SearchIndexService();
+        _documentLinkService = new DocumentLinkService();
         InitializeProjectTree();
         UpdateRecentProjectsList();
         InitializeIdleStatisticsTimer();
         InitializeFindReplace();
+        InitializeDocumentLinkAutocomplete();
+    }
+
+    private void InitializeDocumentLinkAutocomplete()
+    {
+        // Update autocomplete documents when project changes
+        PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(_currentProject))
+            {
+                UpdateAutocompleteDocuments();
+            }
+        };
+    }
+
+    private void UpdateAutocompleteDocuments()
+    {
+        if (_currentProject?.Documents != null)
+        {
+            DocumentLinkAutocompleteViewModel.SetDocuments(_currentProject.Documents.ToList());
+        }
+        else
+        {
+            DocumentLinkAutocompleteViewModel.SetDocuments(new List<Document>());
+        }
     }
 
     private void InitializeFindReplace()
@@ -630,49 +660,59 @@ public partial class MainWindowViewModel : ViewModelBase
             // Headers
             if (trimmedLine.StartsWith("# "))
             {
-                blocks.Add(new MarkdownBlock 
+                var headingBlock = new MarkdownBlock 
                 { 
                     Type = MarkdownBlockType.Heading1, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2)) 
-                });
+                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2), out var h1Links)
+                };
+                headingBlock.Links = h1Links;
+                blocks.Add(headingBlock);
                 continue;
             }
             if (trimmedLine.StartsWith("## "))
             {
-                blocks.Add(new MarkdownBlock 
+                var headingBlock = new MarkdownBlock 
                 { 
                     Type = MarkdownBlockType.Heading2, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(3)) 
-                });
+                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(3), out var h2Links)
+                };
+                headingBlock.Links = h2Links;
+                blocks.Add(headingBlock);
                 continue;
             }
             if (trimmedLine.StartsWith("### "))
             {
-                blocks.Add(new MarkdownBlock 
+                var headingBlock = new MarkdownBlock 
                 { 
                     Type = MarkdownBlockType.Heading3, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(4)) 
-                });
+                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(4), out var h3Links)
+                };
+                headingBlock.Links = h3Links;
+                blocks.Add(headingBlock);
                 continue;
             }
             if (trimmedLine.StartsWith("#### "))
             {
-                blocks.Add(new MarkdownBlock 
+                var headingBlock = new MarkdownBlock 
                 { 
                     Type = MarkdownBlockType.Heading4, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(5)) 
-                });
+                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(5), out var h4Links)
+                };
+                headingBlock.Links = h4Links;
+                blocks.Add(headingBlock);
                 continue;
             }
 
             // Lists
             if (trimmedLine.StartsWith("- ") || trimmedLine.StartsWith("* "))
             {
-                blocks.Add(new MarkdownBlock 
+                var listBlock = new MarkdownBlock 
                 { 
                     Type = MarkdownBlockType.ListItem, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2)) 
-                });
+                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2), out var listLinks)
+                };
+                listBlock.Links = listLinks;
+                blocks.Add(listBlock);
                 continue;
             }
 
@@ -684,11 +724,13 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             // Regular paragraph
-            blocks.Add(new MarkdownBlock 
+            var paragraphBlock = new MarkdownBlock 
             { 
                 Type = MarkdownBlockType.Paragraph, 
-                Content = ProcessInlineMarkdownText(trimmedLine) 
-            });
+                Content = ProcessInlineMarkdownText(trimmedLine, out var links)
+            };
+            paragraphBlock.Links = links;
+            blocks.Add(paragraphBlock);
         }
 
         if (inCodeBlock && codeBlockLines.Count > 0)
@@ -703,10 +745,30 @@ public partial class MainWindowViewModel : ViewModelBase
         return blocks;
     }
 
-    private string ProcessInlineMarkdownText(string text)
+    private string ProcessInlineMarkdownText(string text, out List<DocumentLink> links)
     {
+        links = new List<DocumentLink>();
+        
         if (string.IsNullOrEmpty(text))
             return string.Empty;
+
+        // Parse double bracket links first (before processing other markdown)
+        var documentLinks = _documentLinkService.ParseLinks(text);
+        
+        // Resolve links if we have a current project
+        if (_currentProject != null)
+        {
+            _documentLinkService.ResolveLinks(documentLinks, _currentProject);
+        }
+        
+        links = documentLinks;
+
+        // Store original link positions before text processing
+        var linkPositions = new Dictionary<DocumentLink, int>();
+        foreach (var link in documentLinks)
+        {
+            linkPositions[link] = link.StartIndex;
+        }
 
         // Remove markdown syntax for now - in a full implementation we'd parse and format
         // Bold: **text** -> text (will be formatted by TextBlock styling)
@@ -722,7 +784,25 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Links: [text](url) -> text (url)
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+?)\]\(([^\)]+?)\)", "$1 ($2)");
-
+        
+        // Replace double bracket links with display text (in reverse order to maintain indices)
+        foreach (var link in documentLinks.OrderByDescending(l => l.StartIndex))
+        {
+            var originalStart = link.StartIndex;
+            var originalLength = link.Length;
+            
+            if (originalStart + originalLength <= text.Length)
+            {
+                text = text.Substring(0, originalStart) + 
+                      link.DisplayText + 
+                      text.Substring(originalStart + originalLength);
+                
+                // Update link position to point to the replaced display text
+                link.StartIndex = originalStart;
+                link.Length = link.DisplayText.Length;
+            }
+        }
+        
         return text;
     }
 
@@ -2540,5 +2620,29 @@ public partial class MainWindowViewModel : ViewModelBase
             RecentProjects.Add(project);
         }
         OnPropertyChanged(nameof(HasRecentProjects));
+    }
+
+    public void NavigateToDocument(string documentId)
+    {
+        if (_currentProject == null)
+            return;
+
+        var document = _currentProject.Documents.FirstOrDefault(d => d.Id == documentId);
+        if (document == null)
+            return;
+
+        // Find the corresponding tree item
+        ProjectTreeItemViewModel? targetItem = null;
+        foreach (var rootItem in ProjectTreeItems)
+        {
+            targetItem = FindTreeItemByDocument(rootItem, document);
+            if (targetItem != null)
+                break;
+        }
+
+        if (targetItem != null)
+        {
+            SelectedProjectItem = targetItem;
+        }
     }
 }

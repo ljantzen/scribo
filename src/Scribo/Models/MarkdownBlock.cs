@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Media;
 
@@ -18,6 +19,7 @@ public class MarkdownBlock
 {
     public MarkdownBlockType Type { get; set; }
     public string Content { get; set; } = string.Empty;
+    public List<DocumentLink> Links { get; set; } = new();
     
     public string DisplayText
     {
