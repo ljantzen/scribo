@@ -136,7 +136,9 @@ public partial class PreferencesViewModel : ViewModelBase
             { "Copy", "Copy" },
             { "Paste", "Paste" },
             { "ToggleViewMode", "Toggle View Mode" },
-            { "Rename", "Rename" }
+            { "Rename", "Rename" },
+            { "Find", "Find in Document" },
+            { "Search", "Search All Documents" }
         };
     }
 

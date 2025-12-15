@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Scribo.ViewModels"
+        xmlns:views="using:Scribo.Views"
         xmlns:conv="using:Scribo.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -49,6 +50,8 @@
                 <MenuItem Header="_Undo" Command="{Binding UndoCommand}" x:Name="undoMenuItem"/>
                 <MenuItem Header="_Redo" Command="{Binding RedoCommand}" x:Name="redoMenuItem"/>
                 <Separator/>
+                <MenuItem Header="_Find" Command="{Binding ShowLocalFindCommand}" x:Name="findMenuItem"/>
+                <Separator/>
                 <MenuItem Header="_Cut" Command="{Binding CutCommand}" x:Name="cutMenuItem"/>
                 <MenuItem Header="_Copy" Command="{Binding CopyCommand}" x:Name="copyMenuItem"/>
                 <MenuItem Header="_Paste" Command="{Binding PasteCommand}" x:Name="pasteMenuItem"/>
@@ -64,6 +67,8 @@
                           Command="{Binding ToggleProjectTreeSideCommand}"/>
             </MenuItem>
             <MenuItem Header="_Tools">
+                <MenuItem Header="_Search" Command="{Binding ShowSearchCommand}" x:Name="searchMenuItem"/>
+                <Separator/>
                 <MenuItem Header="_Plugin Manager" Command="{Binding ShowPluginManagerCommand}"/>
             </MenuItem>
             <MenuItem Header="_Help">
@@ -169,8 +174,19 @@
 
             <!-- Text Editor / Preview -->
             <Grid Grid.Row="0" Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <!-- Find/Replace Bar -->
+                <views:FindReplaceBar Grid.Row="0"
+                                      x:Name="findReplaceBar"
+                                      DataContext="{Binding FindReplaceViewModel}"/>
+                
                 <!-- Source Mode: TextBox -->
-                <TextBox x:Name="sourceTextBox"
+                <TextBox Grid.Row="1"
+                         x:Name="sourceTextBox"
                          Text="{Binding EditorText, Mode=TwoWay}"
                          AcceptsReturn="True"
                          AcceptsTab="True"
@@ -178,7 +194,8 @@
                          FontFamily="Consolas"
                          FontSize="14"
                          Padding="10"
-                         IsVisible="{Binding IsSourceMode}"/>
+                         IsVisible="{Binding IsSourceMode}"
+                         GotFocus="OnEditorTextBoxGotFocus"/>
                 
                 <!-- Preview Mode: ScrollViewer with formatted markdown -->
                 <ScrollViewer x:Name="previewScrollViewer"

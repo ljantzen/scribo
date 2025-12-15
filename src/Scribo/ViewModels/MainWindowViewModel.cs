@@ -23,8 +23,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly FileService _fileService;
     private readonly ProjectService _projectService;
     private readonly MostRecentlyUsedService _mruService;
+    private readonly SearchIndexService _searchIndexService;
     private FileDialogService? _fileDialogService;
     private Window? _parentWindow;
+    private SearchWindow? _searchWindow;
 
     [ObservableProperty]
     private string editorText = string.Empty;
@@ -81,21 +83,69 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private ObservableCollection<MarkdownBlock> renderedMarkdownBlocks = new();
 
+    [ObservableProperty]
+    private FindReplaceViewModel findReplaceViewModel = new();
+
     private Project? _currentProject;
     private DispatcherTimer? _idleTimer;
     private DateTime _lastActivityTime = DateTime.Now;
     private const int IdleTimeoutSeconds = 2; // Calculate statistics after 2 seconds of inactivity
 
-    public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null)
+    public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null)
     {
         _pluginManager = pluginManager ?? new PluginManager();
         _fileService = fileService ?? new FileService();
         _projectService = projectService ?? new ProjectService();
         _mruService = mruService ?? new MostRecentlyUsedService();
+        _searchIndexService = searchIndexService ?? new SearchIndexService();
         InitializeProjectTree();
         UpdateRecentProjectsList();
         InitializeIdleStatisticsTimer();
+        InitializeFindReplace();
     }
+
+    private void InitializeFindReplace()
+    {
+        FindReplaceViewModel.SelectMatchRequested += OnSelectMatch;
+        FindReplaceViewModel.ReplaceTextRequested += OnReplaceText;
+        FindReplaceViewModel.GetCurrentCursorPositionRequested += GetCurrentCursorPosition;
+        
+        // Update find text when editor text changes
+        PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(EditorText))
+            {
+                FindReplaceViewModel.SetDocumentText(EditorText);
+            }
+        };
+    }
+
+    private int GetCurrentCursorPosition()
+    {
+        if (_parentWindow is Views.MainWindow mainWindow)
+        {
+            var textBox = mainWindow.FindControl<TextBox>("sourceTextBox");
+            if (textBox != null)
+            {
+                // Return the end of the current selection, or the caret position
+                return textBox.SelectionEnd > 0 ? textBox.SelectionEnd : textBox.CaretIndex;
+            }
+        }
+        return 0;
+    }
+
+    private void OnSelectMatch(int index, int length)
+    {
+        SelectMatchRequested?.Invoke(index, length);
+    }
+
+    private void OnReplaceText(string newText)
+    {
+        EditorText = newText;
+        HasUnsavedChanges = true;
+    }
+
+    public event Action<int, int>? SelectMatchRequested;
 
     private void InitializeIdleStatisticsTimer()
     {
@@ -276,6 +326,9 @@ public partial class MainWindowViewModel : ViewModelBase
         HasUnsavedChanges = false;
         LoadProjectIntoTree(project);
         
+        // Index the project for search
+        _searchIndexService.IndexProject(project);
+        
         // Calculate initial statistics for new project
         RecordActivity();
         CalculateStatistics();
@@ -302,6 +355,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentFilePath = string.Empty;
                 LoadProjectIntoTree(project);
                 HasUnsavedChanges = false;
+                
+                // Index the project for search
+                _searchIndexService.IndexProject(project);
                 
                 // Add to MRU list
                 _mruService.AddProject(filePath, project.Name);
@@ -471,6 +527,16 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         HasUnsavedChanges = true;
         RecordActivity(); // Record activity when user types
+        
+        // Update find/replace document text
+        FindReplaceViewModel.SetDocumentText(value);
+        
+        // Update search index when content changes
+        if (SelectedProjectItem?.Document != null)
+        {
+            SelectedProjectItem.Document.Content = value;
+            _searchIndexService.UpdateDocument(SelectedProjectItem.Document);
+        }
         
         // Update rendered markdown if in preview mode
         if (IsPreviewMode)
@@ -1282,6 +1348,111 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var pluginManagerWindow = new PluginManagerWindow(new PluginManagerViewModel(_pluginManager));
         pluginManagerWindow.Show();
+    }
+
+    [RelayCommand]
+    private void ShowLocalFind()
+    {
+        if (!IsSourceMode)
+            return; // Only show find in source mode
+        
+        FindReplaceViewModel.IsVisible = true;
+        FindReplaceViewModel.SetDocumentText(EditorText);
+        
+        // Focus the find text box after a brief delay
+        Dispatcher.UIThread.Post(() =>
+        {
+            FocusFindTextBox();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void FocusFindTextBox()
+    {
+        if (_parentWindow is Views.MainWindow mainWindow)
+        {
+            var findBar = mainWindow.FindControl<Views.FindReplaceBar>("findReplaceBar");
+            var findTextBox = findBar?.FindControl<TextBox>("findTextBox");
+            findTextBox?.Focus();
+            findTextBox?.SelectAll();
+        }
+    }
+
+    [RelayCommand]
+    private void ShowSearch()
+    {
+        if (_currentProject == null)
+        {
+            // TODO: Show message that no project is loaded
+            return;
+        }
+
+        // Close existing search window if open
+        _searchWindow?.Close();
+
+        var searchViewModel = new SearchViewModel(_searchIndexService, _projectService);
+        searchViewModel.SetProject(_currentProject);
+        
+        _searchWindow = new SearchWindow(searchViewModel)
+        {
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        
+        _searchWindow.NavigateToResultRequested += OnNavigateToSearchResult;
+        
+        if (_parentWindow != null)
+        {
+            _searchWindow.ShowDialog(_parentWindow);
+        }
+        else
+        {
+            _searchWindow.Show();
+        }
+        
+        _searchWindow.Closed += (s, e) => _searchWindow = null;
+    }
+
+    private void OnNavigateToSearchResult(SearchResult result)
+    {
+        if (_currentProject == null)
+            return;
+
+        // Find the document in the project tree
+        var document = _currentProject.Documents.FirstOrDefault(d => d.Id == result.DocumentId);
+        if (document == null)
+            return;
+
+        // Find the corresponding tree item
+        ProjectTreeItemViewModel? targetItem = null;
+        foreach (var rootItem in ProjectTreeItems)
+        {
+            targetItem = FindTreeItemByDocument(rootItem, document);
+            if (targetItem != null)
+                break;
+        }
+
+        if (targetItem != null)
+        {
+            // Select the document in the tree
+            SelectedProjectItem = targetItem;
+            
+            // Scroll to the first match if possible
+            // This would require additional UI work to scroll the editor
+        }
+    }
+
+    private ProjectTreeItemViewModel? FindTreeItemByDocument(ProjectTreeItemViewModel item, Document document)
+    {
+        if (item.Document?.Id == document.Id)
+            return item;
+
+        foreach (var child in item.Children)
+        {
+            var found = FindTreeItemByDocument(child, document);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 
     [RelayCommand]

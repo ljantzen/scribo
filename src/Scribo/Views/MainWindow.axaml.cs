@@ -44,6 +44,76 @@ public partial class MainWindow : Window
         
         // Load and apply keyboard shortcuts from settings
         LoadKeyboardShortcuts();
+        
+        // Setup find/replace
+        viewModel.SelectMatchRequested += OnSelectMatch;
+    }
+
+    private bool _isSelectingMatch = false;
+
+    private void OnSelectMatch(int index, int length)
+    {
+        var textBox = this.FindControl<TextBox>("sourceTextBox");
+        var findBar = this.FindControl<FindReplaceBar>("findReplaceBar");
+        var findTextBox = findBar?.FindControl<TextBox>("findTextBox");
+        
+        if (textBox != null && index >= 0 && length > 0)
+        {
+            var textLength = textBox.Text?.Length ?? 0;
+            if (index + length <= textLength)
+            {
+                var findBarVisible = findBar != null && findBar.IsVisible;
+                
+                if (findBarVisible)
+                {
+                    _isSelectingMatch = true;
+                }
+                
+                // Set selection
+                textBox.SelectionStart = index;
+                textBox.SelectionEnd = index + length;
+                
+                // Scroll to selection using CaretIndex (this doesn't require focus)
+                textBox.CaretIndex = index;
+                
+                // If find bar is visible, restore focus to find TextBox
+                // Otherwise, focus the editor (for manual navigation)
+                if (findBarVisible && findTextBox != null)
+                {
+                    // Restore focus to find TextBox after selection is set
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        findTextBox.Focus();
+                        _isSelectingMatch = false;
+                    }, DispatcherPriority.Input);
+                }
+                else if (!findBarVisible)
+                {
+                    // Only focus editor if find bar is not visible
+                    textBox.Focus();
+                    _isSelectingMatch = false;
+                }
+            }
+        }
+    }
+
+    private void OnEditorTextBoxGotFocus(object? sender, Avalonia.Input.GotFocusEventArgs e)
+    {
+        // If we're selecting a match and find bar is visible, prevent editor from getting focus
+        if (_isSelectingMatch)
+        {
+            var findBar = this.FindControl<FindReplaceBar>("findReplaceBar");
+            var findTextBox = findBar?.FindControl<TextBox>("findTextBox");
+            
+            if (findBar != null && findBar.IsVisible && findTextBox != null)
+            {
+                // Prevent editor from stealing focus
+                Dispatcher.UIThread.Post(() =>
+                {
+                    findTextBox.Focus();
+                }, DispatcherPriority.Input);
+            }
+        }
     }
     
     public void ReloadKeyboardShortcuts()
@@ -65,10 +135,12 @@ public partial class MainWindow : Window
         ApplyShortcut("Exit", settings.KeyboardShortcuts, exitMenuItem);
         ApplyShortcut("Undo", settings.KeyboardShortcuts, undoMenuItem);
         ApplyShortcut("Redo", settings.KeyboardShortcuts, redoMenuItem);
+        ApplyShortcut("Find", settings.KeyboardShortcuts, findMenuItem);
         ApplyShortcut("Cut", settings.KeyboardShortcuts, cutMenuItem);
         ApplyShortcut("Copy", settings.KeyboardShortcuts, copyMenuItem);
         ApplyShortcut("Paste", settings.KeyboardShortcuts, pasteMenuItem);
         ApplyShortcut("ToggleViewMode", settings.KeyboardShortcuts, toggleViewModeMenuItem);
+        ApplyShortcut("Search", settings.KeyboardShortcuts, searchMenuItem);
     }
     
     private void ApplyShortcut(string actionName, Dictionary<string, string> shortcuts, MenuItem? menuItem)
@@ -90,12 +162,46 @@ public partial class MainWindow : Window
     
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        // Handle F2 for rename (configurable shortcut)
         if (DataContext is MainWindowViewModel vm)
         {
             var settingsService = new ApplicationSettingsService();
             var settings = settingsService.LoadSettings();
             
+            // Handle local find shortcut (Ctrl+F)
+            if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                e.Handled = true;
+                vm.ShowLocalFindCommand.Execute(null);
+                return;
+            }
+            
+            // Handle search shortcut (global) - Ctrl+Shift+F
+            string searchShortcut = settings.KeyboardShortcuts.ContainsKey("Search") 
+                ? settings.KeyboardShortcuts["Search"] 
+                : "Ctrl+Shift+F";
+            
+            try
+            {
+                var searchGesture = KeyGesture.Parse(searchShortcut);
+                if (searchGesture.Matches(e))
+                {
+                    e.Handled = true;
+                    vm.ShowSearchCommand.Execute(null);
+                    return;
+                }
+            }
+            catch
+            {
+                // Fallback to Ctrl+Shift+F if parsing fails
+                if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+                {
+                    e.Handled = true;
+                    vm.ShowSearchCommand.Execute(null);
+                    return;
+                }
+            }
+            
+            // Handle F2 for rename (configurable shortcut)
             string renameShortcut = settings.KeyboardShortcuts.ContainsKey("Rename") 
                 ? settings.KeyboardShortcuts["Rename"] 
                 : "F2";

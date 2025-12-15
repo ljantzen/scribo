@@ -1,0 +1,141 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Scribo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+        x:Class="Scribo.Views.SearchWindow"
+        x:DataType="vm:SearchViewModel"
+        Title="Search Documents"
+        Width="800" Height="600"
+        WindowStartupLocation="CenterOwner"
+        x:Name="searchWindow">
+    
+    <DockPanel>
+        <!-- Search Bar -->
+        <Border DockPanel.Dock="Top" 
+                Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="10">
+            <StackPanel Spacing="10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBox Grid.Column="0"
+                            x:Name="searchTextBox"
+                            Text="{Binding SearchQuery, Mode=TwoWay}"
+                            Watermark="Search documents..."
+                            FontSize="14"
+                            KeyDown="OnSearchKeyDown"/>
+                    
+                    <Button Grid.Column="1"
+                           Content="Search"
+                           Command="{Binding PerformSearchCommand}"
+                           Margin="10,0,0,0"
+                           Padding="20,5"
+                           IsDefault="True"/>
+                </Grid>
+                
+                <!-- Search Options -->
+                <StackPanel Orientation="Horizontal" Spacing="15">
+                    <CheckBox Content="Case Sensitive"
+                            IsChecked="{Binding CaseSensitive, Mode=TwoWay}"/>
+                    <CheckBox Content="Whole Words Only"
+                            IsChecked="{Binding WholeWordsOnly, Mode=TwoWay}"/>
+                    <TextBlock Text="{Binding StatusText}"
+                             VerticalAlignment="Center"
+                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                             Margin="20,0,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        
+        <!-- Results -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Results List -->
+            <ListBox Grid.Row="0"
+                    x:Name="resultsListBox"
+                    ItemsSource="{Binding SearchResults}"
+                    SelectedItem="{Binding SelectedResult}"
+                    SelectionMode="Single"
+                    KeyDown="OnResultsListBoxKeyDown"
+                    DoubleTapped="OnResultsListBoxDoubleTapped">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="10" Margin="2">
+                            <StackPanel Spacing="5">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{Binding DocumentTitle}"
+                                             FontWeight="Bold"
+                                             FontSize="14"/>
+                                    <TextBlock Text="{Binding DocumentType}"
+                                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                             FontSize="12"/>
+                                    <TextBlock Text="{Binding MatchCount, StringFormat='({0} match{0:es|es|es})'}"
+                                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                             FontSize="12"/>
+                                </StackPanel>
+                                
+                                <ItemsControl ItemsSource="{Binding MatchContexts}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                                                   Padding="5"
+                                                   Margin="0,2">
+                                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                                    <TextBlock Text="{Binding LineNumber, StringFormat='Line {0}:'}"
+                                                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                                             FontSize="11"
+                                                             MinWidth="60"/>
+                                                    <TextBlock Text="{Binding Text}"
+                                                             TextWrapping="Wrap"
+                                                             FontSize="11"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            
+            <!-- Status Bar -->
+            <Border Grid.Row="1"
+                   Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                   BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                   BorderThickness="0,1,0,0"
+                   Padding="10,5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0"
+                             Text="{Binding StatusText}"
+                             VerticalAlignment="Center"
+                             FontSize="11"
+                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                    
+                    <TextBlock Grid.Column="1"
+                             Text="{Binding ResultCount, StringFormat='{}{0:N0} total matches'}"
+                             VerticalAlignment="Center"
+                             FontSize="11"
+                             Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                             Margin="10,0,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

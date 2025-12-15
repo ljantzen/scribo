@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Scribo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="60"
+        x:Class="Scribo.Views.FindReplaceBar"
+        x:DataType="vm:FindReplaceViewModel"
+        IsVisible="{Binding IsVisible}">
+    
+    <Border Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+           BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+           BorderThickness="0,0,0,1"
+           Padding="10">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Find Label -->
+            <TextBlock Grid.Column="0"
+                      Text="Find:"
+                      VerticalAlignment="Center"
+                      Margin="0,0,5,0"/>
+            
+            <!-- Find TextBox -->
+            <TextBox Grid.Column="1"
+                    x:Name="findTextBox"
+                    Text="{Binding SearchText, Mode=TwoWay}"
+                    Watermark="Search..."
+                    VerticalAlignment="Center"
+                    Margin="0,0,10,0"
+                    KeyDown="OnFindKeyDown"/>
+            
+            <!-- Match Status -->
+            <TextBlock Grid.Column="2"
+                      Text="{Binding StatusText}"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                      Margin="0,0,10,0"
+                      MinWidth="80"/>
+            
+            <!-- Find Previous -->
+            <Button Grid.Column="3"
+                   Content="↑"
+                   Command="{Binding FindPreviousCommand}"
+                   ToolTip.Tip="Find Previous (Shift+F3)"
+                   Padding="8,2"
+                   Margin="0,0,5,0"
+                   Width="30"/>
+            
+            <!-- Find Next -->
+            <Button Grid.Column="4"
+                   Content="↓"
+                   Command="{Binding FindNextCommand}"
+                   ToolTip.Tip="Find Next (F3)"
+                   Padding="8,2"
+                   Margin="0,0,10,0"
+                   Width="30"/>
+            
+            <!-- Case Sensitive -->
+            <CheckBox Grid.Column="5"
+                     Content="Aa"
+                     IsChecked="{Binding CaseSensitive, Mode=TwoWay}"
+                     ToolTip.Tip="Case Sensitive"
+                     VerticalAlignment="Center"
+                     Margin="0,0,10,0"/>
+            
+            <!-- Close -->
+            <Button Grid.Column="6"
+                   Content="✕"
+                   Command="{Binding CloseCommand}"
+                   ToolTip.Tip="Close (Esc)"
+                   Padding="8,2"
+                   Width="30"/>
+        </Grid>
+    </Border>
+</UserControl>

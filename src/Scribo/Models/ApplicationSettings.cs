@@ -37,7 +37,9 @@ public class ApplicationSettings
             { "Copy", "Ctrl+C" },
             { "Paste", "Ctrl+V" },
             { "ToggleViewMode", "Ctrl+P" },
-            { "Rename", "F2" }
+            { "Rename", "F2" },
+            { "Find", "Ctrl+F" },
+            { "Search", "Ctrl+Shift+F" }
         };
     }
 }
