@@ -1,0 +1,167 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Scribo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+        x:Class="Scribo.Views.PluginManagerWindow"
+        x:DataType="vm:PluginManagerViewModel"
+        Title="Plugin Manager"
+        Width="800" Height="600"
+        WindowStartupLocation="CenterOwner">
+    
+    <DockPanel>
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" 
+                Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10,5">
+            <TextBlock Text="{Binding StatusMessage}"/>
+        </Border>
+
+        <!-- Button Panel -->
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10">
+            <StackPanel Orientation="Horizontal" 
+                       HorizontalAlignment="Right" 
+                       Spacing="10">
+                <Button Content="OK" 
+                       Width="80"
+                       Click="OnOkClick"/>
+                <Button Content="Cancel" 
+                       Width="80"
+                       IsCancel="True"
+                       Click="OnCancelClick"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Toolbar -->
+        <StackPanel DockPanel.Dock="Top" 
+                    Orientation="Horizontal" 
+                    Spacing="5"
+                    Margin="10">
+            <Button Content="Install Plugin" 
+                    Command="{Binding InstallPluginCommand}"/>
+            <Button Content="Remove" 
+                    Command="{Binding RemovePluginCommand}"
+                    IsEnabled="{Binding HasSelectedPlugin}"/>
+            <Separator/>
+            <Button Content="Enable" 
+                    Command="{Binding EnablePluginCommand}"
+                    IsEnabled="{Binding HasSelectedPlugin}"/>
+            <Button Content="Disable" 
+                    Command="{Binding DisablePluginCommand}"
+                    IsEnabled="{Binding HasSelectedPlugin}"/>
+            <Separator/>
+            <Button Content="Refresh" 
+                    Command="{Binding RefreshCommand}"/>
+        </StackPanel>
+
+        <!-- Plugin List -->
+        <Grid Margin="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Plugin List -->
+            <ListBox Grid.Column="0"
+                     ItemsSource="{Binding Plugins}"
+                     SelectedItem="{Binding SelectedPlugin}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="5">
+                            <TextBlock Text="{Binding Name}" 
+                                       FontWeight="Bold"/>
+                            <TextBlock Text="{Binding Version}" 
+                                       FontSize="11"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                            <TextBlock Text="{Binding Description}" 
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,2,0,0"/>
+                            <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
+                                <TextBlock Text="Status:" FontWeight="SemiBold"/>
+                                <TextBlock>
+                                    <TextBlock Text="Enabled" IsVisible="{Binding IsEnabled}"/>
+                                    <TextBlock Text="Disabled">
+                                        <TextBlock.IsVisible>
+                                            <Binding Path="IsEnabled">
+                                                <Binding.Converter>
+                                                    <x:Static Member="BoolConverters.Not"/>
+                                                </Binding.Converter>
+                                            </Binding>
+                                        </TextBlock.IsVisible>
+                                    </TextBlock>
+                                </TextBlock>
+                            </StackPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+
+            <!-- Plugin Details -->
+            <Border Grid.Column="2" 
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    BorderThickness="1"
+                    Padding="10"
+                    IsVisible="{Binding HasSelectedPlugin}">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="Plugin Details" FontSize="16" FontWeight="Bold"/>
+                    
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedPlugin.Name}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Version:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedPlugin.Version}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Author:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedPlugin.Author}"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Description:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" 
+                                   Text="{Binding SelectedPlugin.Description}"
+                                   TextWrapping="Wrap"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Status:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1">
+                            <TextBlock Text="Enabled" IsVisible="{Binding SelectedPlugin.IsEnabled}"/>
+                            <TextBlock Text="Disabled">
+                                <TextBlock.IsVisible>
+                                    <Binding Path="SelectedPlugin.IsEnabled">
+                                        <Binding.Converter>
+                                            <x:Static Member="BoolConverters.Not"/>
+                                        </Binding.Converter>
+                                    </Binding>
+                                </TextBlock.IsVisible>
+                            </TextBlock>
+                        </TextBlock>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Installed:" FontWeight="SemiBold" Margin="0,0,10,5"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedPlugin.InstalledAt, StringFormat='{}{0:g}'}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

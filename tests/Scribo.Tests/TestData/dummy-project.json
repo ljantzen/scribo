@@ -1,0 +1,248 @@
+{
+  "name": "Test Writing Project",
+  "filePath": "/home/leif/dev/p/privat/scribo/tests/Scribo.Tests/TestData/dummy-project.json",
+  "documents": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "title": "Chapter 1: The Beginning",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "Manuscript/Chapter-1:-The-Beginning/content.md",
+      "type": "chapter",
+      "createdAt": "2024-01-15T10:00:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6064549+01:00",
+      "order": 0,
+      "wordCount": 246,
+      "characterCount": 1405,
+      "characterCountNoSpaces": 1154
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "title": "Chapter 2: The Discovery",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "Manuscript/Chapter-2:-The-Discovery/content.md",
+      "type": "chapter",
+      "createdAt": "2024-01-21T09:15:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6064825+01:00",
+      "order": 1,
+      "wordCount": 309,
+      "characterCount": 1792,
+      "characterCountNoSpaces": 1477
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440006",
+      "title": "The Library Discovery",
+      "parentId": "550e8400-e29b-41d4-a716-446655440000",
+      "folderPath": "",
+      "contentFilePath": "Manuscript/Chapter-1:-The-Beginning/The-Library-Discovery.md",
+      "type": "scene",
+      "createdAt": "2024-01-23T12:00:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6065001+01:00",
+      "order": 0,
+      "wordCount": 275,
+      "characterCount": 1567,
+      "characterCountNoSpaces": 1285
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "title": "Character Profile: Sarah",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "characters/Character-Profile:-Sarah.md",
+      "type": "character",
+      "createdAt": "2024-01-10T11:00:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6065171+01:00",
+      "order": 0,
+      "wordCount": 298,
+      "characterCount": 1939,
+      "characterCountNoSpaces": 1629
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "title": "Location: The Old Estate",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "locations/Location:-The-Old-Estate.md",
+      "type": "location",
+      "createdAt": "2024-01-12T13:20:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6065367+01:00",
+      "order": 0,
+      "wordCount": 384,
+      "characterCount": 2383,
+      "characterCountNoSpaces": 1986
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440004",
+      "title": "Research: Victorian Letter Writing",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "research/Research:-Victorian-Letter-Writing.md",
+      "type": "research",
+      "createdAt": "2024-01-18T15:00:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6065532+01:00",
+      "order": 0,
+      "wordCount": 323,
+      "characterCount": 2238,
+      "characterCountNoSpaces": 1900
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440005",
+      "title": "Plot Notes: Main Arc",
+      "parentId": null,
+      "folderPath": "",
+      "contentFilePath": "notes/Plot-Notes:-Main-Arc.md",
+      "type": "note",
+      "createdAt": "2024-01-08T08:00:00Z",
+      "modifiedAt": "2025-12-15T15:46:43.6066113+01:00",
+      "order": 0,
+      "wordCount": 291,
+      "characterCount": 1739,
+      "characterCountNoSpaces": 1434
+    },
+    {
+      "id": "30432903-4951-49ff-add3-f24e8506f19f",
+      "title": "The headless doll",
+      "parentId": "550e8400-e29b-41d4-a716-446655440000",
+      "folderPath": "",
+      "contentFilePath": "Manuscript/Chapter-1:-The-Beginning/The-headless-doll.md",
+      "type": "scene",
+      "createdAt": "2025-12-15T16:16:51.4466469+01:00",
+      "modifiedAt": "2025-12-15T16:17:46.4751006+01:00",
+      "order": 1,
+      "wordCount": 12,
+      "characterCount": 70,
+      "characterCountNoSpaces": 57
+    }
+  ],
+  "metadata": {
+    "title": "Test Writing Project",
+    "author": "Test Author",
+    "publisher": "Test Publishing House",
+    "isbn": "978-0-123456-78-9",
+    "copyright": "2024",
+    "comments": "This is a test project file used for testing reading and writing functionality.",
+    "projectNotes": "This project explores themes of family secrets, historical mysteries, and personal discovery. The protagonist, Sarah, must navigate through hidden truths while dealing with her own past.",
+    "wordCountTargets": {
+      "targetWordCount": 50000,
+      "targetCharacterCount": 0,
+      "targetPageCount": 200,
+      "targetDate": "2024-12-31T00:00:00Z",
+      "showTargetInStatusBar": true,
+      "includeNotesInCount": false,
+      "includeResearchInCount": false
+    },
+    "statistics": {
+      "totalWordCount": 2138,
+      "totalCharacterCount": 13133,
+      "totalCharacterCountNoSpaces": 10922,
+      "totalPageCount": 9,
+      "paragraphCount": 80,
+      "sentenceCount": 92,
+      "lastCalculatedAt": "2025-12-15T16:17:46.4752635+01:00"
+    },
+    "currentSession": {
+      "startTime": "2024-01-27T09:00:00Z",
+      "endTime": null,
+      "wordsWritten": 0,
+      "charactersWritten": 0,
+      "notes": "Working on Chapter 3"
+    },
+    "sessionHistory": [
+      {
+        "startTime": "2024-01-26T09:00:00Z",
+        "endTime": "2024-01-26T17:00:00Z",
+        "wordsWritten": 1250,
+        "charactersWritten": 6750,
+        "notes": "Completed Chapter 2"
+      },
+      {
+        "startTime": "2024-01-25T10:00:00Z",
+        "endTime": "2024-01-25T15:30:00Z",
+        "wordsWritten": 980,
+        "charactersWritten": 5420,
+        "notes": "Worked on character development"
+      }
+    ],
+    "keywords": [
+      "mystery",
+      "family",
+      "historical",
+      "fiction",
+      "thriller"
+    ],
+    "tags": [
+      "draft",
+      "in-progress",
+      "first-novel"
+    ],
+    "customFields": {
+      "genre": "Mystery/Thriller",
+      "status": "In Progress",
+      "targetAudience": "Adult",
+      "estimatedCompletion": "2024-12-31"
+    },
+    "compileSettings": {
+      "outputFormat": "PDF",
+      "pageSize": "A4",
+      "fontFamily": "Times New Roman",
+      "fontSize": 12,
+      "lineSpacing": 1.5,
+      "marginTop": 2.54,
+      "marginBottom": 2.54,
+      "marginLeft": 3.18,
+      "marginRight": 3.18,
+      "includeTitlePage": true,
+      "includeTableOfContents": true,
+      "includePageNumbers": true,
+      "pageNumberPosition": "Bottom Center"
+    },
+    "documentOrganization": {
+      "showBinderInSidebar": true,
+      "showCorkboard": false,
+      "showOutliner": false,
+      "defaultDocumentType": "Chapter",
+      "autoNumberDocuments": false,
+      "numberingFormat": "Chapter {n}"
+    },
+    "researchSettings": {
+      "showResearchInSidebar": true,
+      "allowWebResearch": true,
+      "maxResearchFileSize": 50,
+      "allowedResearchExtensions": [
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".txt",
+        ".md",
+        ".rtf",
+        ".html",
+        ".jpg",
+        ".png",
+        ".gif"
+      ]
+    },
+    "settings": {
+      "autoSave": true,
+      "autoSaveIntervalMinutes": 5,
+      "backupOnSave": true,
+      "maxBackups": 10,
+      "backupLocation": "",
+      "showWordCountInStatusBar": true,
+      "showCharacterCountInStatusBar": true,
+      "showPageCountInStatusBar": false,
+      "defaultFontFamily": "Consolas",
+      "defaultFontSize": 14,
+      "wordWrap": true,
+      "showLineNumbers": false,
+      "showRuler": false,
+      "theme": "Light"
+    },
+    "version": "1.0",
+    "createdAt": "2024-01-08T08:00:00Z",
+    "modifiedAt": "2025-12-15T16:17:46.4751028+01:00",
+    "lastOpenedAt": "2025-12-15T16:17:46.4751031+01:00"
+  },
+  "createdAt": "2024-01-08T08:00:00Z",
+  "modifiedAt": "2025-12-15T16:17:46.4678373+01:00"
+}

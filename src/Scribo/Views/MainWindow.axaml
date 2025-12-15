@@ -1,0 +1,283 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Scribo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+        x:Class="Scribo.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Scribo - Writing Assistant"
+        Width="1200" Height="800"
+        WindowStartupLocation="CenterScreen"
+        x:Name="mainWindow">
+    <Window.Styles>
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="Inter"/>
+        </Style>
+    </Window.Styles>
+    
+    <DockPanel>
+        <!-- Menu Bar -->
+        <Menu DockPanel.Dock="Top" x:Name="mainMenu">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New Project" Command="{Binding NewProjectCommand}"/>
+                <MenuItem Header="_Open Project" Command="{Binding OpenProjectCommand}"/>
+                <MenuItem Header="Recent Projects" 
+                          ItemsSource="{Binding RecentProjects}"
+                          IsVisible="{Binding HasRecentProjects}">
+                    <MenuItem.ItemTemplate>
+                        <DataTemplate>
+                            <MenuItem Header="{Binding ProjectName}" 
+                                     Click="OnRecentProjectClick"
+                                     Tag="{Binding FilePath}"/>
+                        </DataTemplate>
+                    </MenuItem.ItemTemplate>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="_Save Project" Command="{Binding SaveProjectCommand}"/>
+                <MenuItem Header="Save Project _As" Command="{Binding SaveProjectAsCommand}"/>
+                <Separator/>
+                <MenuItem Header="_Preferences" Command="{Binding ShowPreferencesCommand}"/>
+                <Separator/>
+                <MenuItem Header="E_xit" Command="{Binding ExitCommand}"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Command="{Binding UndoCommand}"/>
+                <MenuItem Header="_Redo" Command="{Binding RedoCommand}"/>
+                <Separator/>
+                <MenuItem Header="_Cut" Command="{Binding CutCommand}"/>
+                <MenuItem Header="_Copy" Command="{Binding CopyCommand}"/>
+                <MenuItem Header="_Paste" Command="{Binding PasteCommand}"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Project Tree Left" 
+                          Command="{Binding ToggleProjectTreeSideCommand}"/>
+                <MenuItem Header="_Project Tree Right" 
+                          Command="{Binding ToggleProjectTreeSideCommand}"/>
+            </MenuItem>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="_Word Count" Command="{Binding ShowWordCountCommand}"/>
+                <MenuItem Header="_Character Count" Command="{Binding ShowCharacterCountCommand}"/>
+                <Separator/>
+                <MenuItem Header="_Plugin Manager" Command="{Binding ShowPluginManagerCommand}"/>
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About" Command="{Binding ShowAboutCommand}"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Main Content Area -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Content Grid -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250" MinWidth="150"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="250" MinWidth="150"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Project Tree (Left Side) -->
+            <Border Grid.Row="0" Grid.Column="0" 
+                    IsVisible="{Binding IsProjectTreeOnLeft}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" 
+                               Text="Project Structure" 
+                               FontWeight="Bold" 
+                               Margin="5"
+                               Padding="5"/>
+                    <TreeView x:Name="projectTreeViewLeft"
+                              ItemsSource="{Binding ProjectTreeItems}"
+                              SelectedItem="{Binding SelectedProjectItem}">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}">
+                                <Border Background="Transparent"
+                                       DragDrop.AllowDrop="True"
+                                       PointerPressed="OnTreeItemPointerPressed"
+                                       PointerMoved="OnTreeItemPointerMoved"
+                                       PointerReleased="OnTreeItemPointerReleased">
+                                    <Border.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Project Properties" 
+                                                     IsVisible="{Binding IsRoot}"
+                                                     Click="OnProjectPropertiesClick"/>
+                                            <MenuItem Header="Add Chapter" 
+                                                     IsVisible="{Binding CanContainChapters}"
+                                                     Click="OnAddChapterClick"/>
+                                            <MenuItem Header="Rename" 
+                                                     IsVisible="{Binding IsChapter}"
+                                                     Click="OnRenameChapterClick"/>
+                                            <MenuItem Header="Create scene" 
+                                                     IsVisible="{Binding IsChapter}"
+                                                     Click="OnAddSceneClick"/>
+                                            <MenuItem Header="Add Character" 
+                                                     IsVisible="{Binding CanContainCharacters}"
+                                                     Click="OnAddCharacterClick"/>
+                                            <MenuItem Header="Add Location" 
+                                                     IsVisible="{Binding CanContainLocations}"
+                                                     Click="OnAddLocationClick"/>
+                                            <MenuItem Header="Add Note" 
+                                                     IsVisible="{Binding CanContainNotes}"
+                                                     Click="OnAddNoteClick"/>
+                                            <MenuItem Header="Create Subfolder" 
+                                                     IsVisible="{Binding CanCreateSubfolder}"
+                                                     Click="OnCreateSubfolderClick"/>
+                                            <Separator IsVisible="{Binding Document}"/>
+                                            <MenuItem Header="Move Up" 
+                                                     IsVisible="{Binding Document}"
+                                                     Click="OnMoveUpClick"/>
+                                            <MenuItem Header="Move Down" 
+                                                     IsVisible="{Binding Document}"
+                                                     Click="OnMoveDownClick"/>
+                                        </ContextMenu>
+                                    </Border.ContextMenu>
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <TextBlock Text="{Binding Icon}"/>
+                                    <TextBlock Text="{Binding Name}" IsVisible="{Binding !IsRenaming}"/>
+                                    <TextBox Text="{Binding RenameText, Mode=TwoWay}" 
+                                            IsVisible="{Binding IsRenaming}"
+                                            MinWidth="150"
+                                            LostFocus="OnRenameLostFocus"
+                                            KeyDown="OnRenameKeyDown"/>
+                                    </StackPanel>
+                                </Border>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <!-- Splitter for left side -->
+            <GridSplitter Grid.Row="0" Grid.Column="1" 
+                          Width="5" 
+                          HorizontalAlignment="Stretch"
+                          IsVisible="{Binding IsProjectTreeOnLeft}"
+                          ResizeDirection="Columns"/>
+
+            <!-- Text Editor -->
+            <TextBox Grid.Row="0" Grid.Column="2"
+                     Text="{Binding EditorText, Mode=TwoWay}"
+                     AcceptsReturn="True"
+                     AcceptsTab="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="14"
+                     Padding="10"/>
+
+            <!-- Splitter for right side -->
+            <GridSplitter Grid.Row="0" Grid.Column="3" 
+                          Width="5" 
+                          HorizontalAlignment="Stretch"
+                          IsVisible="{Binding IsProjectTreeOnRight}"
+                          ResizeDirection="Columns"/>
+
+            <!-- Project Tree (Right Side) -->
+            <Border Grid.Row="0" Grid.Column="4" 
+                    IsVisible="{Binding IsProjectTreeOnRight}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    BorderThickness="1,0,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" 
+                               Text="Project Structure" 
+                               FontWeight="Bold" 
+                               Margin="5"
+                               Padding="5"/>
+                    <TreeView x:Name="projectTreeViewRight"
+                              ItemsSource="{Binding ProjectTreeItems}"
+                              SelectedItem="{Binding SelectedProjectItem}">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}">
+                                <Border Background="Transparent"
+                                       DragDrop.AllowDrop="True"
+                                       PointerPressed="OnTreeItemPointerPressed"
+                                       PointerMoved="OnTreeItemPointerMoved"
+                                       PointerReleased="OnTreeItemPointerReleased">
+                                    <Border.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Project Properties" 
+                                                     IsVisible="{Binding IsRoot}"
+                                                     Click="OnProjectPropertiesClick"/>
+                                            <MenuItem Header="Add Chapter" 
+                                                     IsVisible="{Binding CanContainChapters}"
+                                                     Click="OnAddChapterClick"/>
+                                            <MenuItem Header="Rename" 
+                                                     IsVisible="{Binding IsChapter}"
+                                                     Click="OnRenameChapterClick"/>
+                                            <MenuItem Header="Create scene" 
+                                                     IsVisible="{Binding IsChapter}"
+                                                     Click="OnAddSceneClick"/>
+                                            <MenuItem Header="Add Character" 
+                                                     IsVisible="{Binding CanContainCharacters}"
+                                                     Click="OnAddCharacterClick"/>
+                                            <MenuItem Header="Add Location" 
+                                                     IsVisible="{Binding CanContainLocations}"
+                                                     Click="OnAddLocationClick"/>
+                                            <MenuItem Header="Add Note" 
+                                                     IsVisible="{Binding CanContainNotes}"
+                                                     Click="OnAddNoteClick"/>
+                                            <MenuItem Header="Create Subfolder" 
+                                                     IsVisible="{Binding CanCreateSubfolder}"
+                                                     Click="OnCreateSubfolderClick"/>
+                                            <Separator IsVisible="{Binding Document}"/>
+                                            <MenuItem Header="Move Up" 
+                                                     IsVisible="{Binding Document}"
+                                                     Click="OnMoveUpClick"/>
+                                            <MenuItem Header="Move Down" 
+                                                     IsVisible="{Binding Document}"
+                                                     Click="OnMoveDownClick"/>
+                                        </ContextMenu>
+                                    </Border.ContextMenu>
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <TextBlock Text="{Binding Icon}"/>
+                                    <TextBlock Text="{Binding Name}" IsVisible="{Binding !IsRenaming}"/>
+                                    <TextBox Text="{Binding RenameText, Mode=TwoWay}" 
+                                            IsVisible="{Binding IsRenaming}"
+                                            MinWidth="150"
+                                            LostFocus="OnRenameLostFocus"
+                                            KeyDown="OnRenameKeyDown"/>
+                                    </StackPanel>
+                                </Border>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+            </Grid>
+            
+            <!-- Status Bar -->
+            <Border Grid.Row="1" 
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                    BorderThickness="0,1,0,0"
+                    Height="24">
+                <Grid Margin="5,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding StatisticsText}"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"/>
+                    
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding CurrentProjectPath}"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                               Margin="10,0,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

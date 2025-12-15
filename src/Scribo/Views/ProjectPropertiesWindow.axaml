@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Scribo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="700"
+        x:Class="Scribo.Views.ProjectPropertiesWindow"
+        x:DataType="vm:ProjectPropertiesViewModel"
+        Title="Project Properties"
+        Width="600" Height="700"
+        WindowStartupLocation="CenterOwner">
+    
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="15">
+            <!-- Basic Information Section -->
+            <TextBlock Text="Basic Information" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+            
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Title:" VerticalAlignment="Center" MinWidth="120" Margin="0,0,10,10"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Author:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Author, Mode=TwoWay}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Publisher:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Publisher, Mode=TwoWay}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="ISBN:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Isbn, Mode=TwoWay}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Copyright:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Copyright, Mode=TwoWay}" Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Comments:" VerticalAlignment="Top" Margin="0,5,10,10"/>
+                <TextBox Grid.Row="5" Grid.Column="1" 
+                         Text="{Binding Comments, Mode=TwoWay}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         Height="60"
+                         Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Project Notes:" VerticalAlignment="Top" Margin="0,5,10,10"/>
+                <TextBox Grid.Row="6" Grid.Column="1" 
+                         Text="{Binding ProjectNotes, Mode=TwoWay}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         Height="100"
+                         Margin="0,0,0,10"/>
+            </Grid>
+
+            <!-- Word Count Targets Section -->
+            <TextBlock Text="Word Count Targets" FontSize="16" FontWeight="Bold" Margin="0,10,0,10"/>
+            
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Target Word Count:" VerticalAlignment="Center" MinWidth="120" Margin="0,0,10,10"/>
+                <NumericUpDown Grid.Row="0" Grid.Column="1" 
+                              Value="{Binding TargetWordCount, Mode=TwoWay}"
+                              Minimum="0"
+                              FormatString="N0"
+                              Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Target Page Count:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <NumericUpDown Grid.Row="1" Grid.Column="1" 
+                              Value="{Binding TargetPageCount, Mode=TwoWay}"
+                              Minimum="0"
+                              FormatString="N0"
+                              Margin="0,0,0,10"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Target Date:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+                <DatePicker Grid.Row="2" Grid.Column="1" 
+                           SelectedDate="{Binding TargetDate, Mode=TwoWay}"
+                           Margin="0,0,0,10"/>
+            </Grid>
+
+            <!-- Buttons -->
+            <StackPanel Orientation="Horizontal" 
+                       HorizontalAlignment="Right" 
+                       Spacing="10" 
+                       Margin="0,20,0,0">
+                <Button Content="Cancel" 
+                        Command="{Binding CancelCommand}"
+                        Width="100"
+                        IsCancel="True"
+                        Click="OnCancelClick"/>
+                <Button Content="OK" 
+                        Command="{Binding SaveCommand}"
+                        Width="100"
+                        IsDefault="True"
+                        Click="OnOkClick"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

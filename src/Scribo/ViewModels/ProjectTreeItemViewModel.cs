@@ -1,0 +1,135 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using Scribo.Models;
+
+namespace Scribo.ViewModels;
+
+public partial class ProjectTreeItemViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private string name = string.Empty;
+
+    [ObservableProperty]
+    private string icon = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<ProjectTreeItemViewModel> children = new();
+
+    /// <summary>
+    /// Indicates whether this is the root project node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isRoot = false;
+
+    /// <summary>
+    /// Indicates whether this is the Manuscript folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isManuscriptFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Characters folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isCharactersFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Locations folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isLocationsFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Research folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isResearchFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Notes folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isNotesFolder = false;
+
+    /// <summary>
+    /// Folder path for subfolders (e.g., "Main Characters" for a subfolder in Characters).
+    /// Empty for main type folders.
+    /// </summary>
+    [ObservableProperty]
+    private string folderPath = string.Empty;
+
+    /// <summary>
+    /// Document type that this folder can contain (for subfolders).
+    /// Null for main folders or document nodes.
+    /// </summary>
+    public DocumentType? FolderDocumentType { get; set; }
+
+    /// <summary>
+    /// Indicates whether this item is currently being renamed.
+    /// </summary>
+    [ObservableProperty]
+    private bool isRenaming = false;
+
+    /// <summary>
+    /// Temporary name used during renaming.
+    /// </summary>
+    [ObservableProperty]
+    private string renameText = string.Empty;
+
+    /// <summary>
+    /// Indicates whether this tree node is expanded.
+    /// </summary>
+    [ObservableProperty]
+    private bool isExpanded = false;
+
+    /// <summary>
+    /// Reference to the Document model, if this tree item represents a document.
+    /// </summary>
+    public Document? Document { get; set; }
+
+    /// <summary>
+    /// Indicates whether this is a chapter node (has a Document with Type == Chapter).
+    /// </summary>
+    public bool IsChapter => Document?.Type == DocumentType.Chapter;
+
+    /// <summary>
+    /// Indicates whether this is a scene node (has a Document with Type == Scene).
+    /// </summary>
+    public bool IsScene => Document?.Type == DocumentType.Scene;
+
+    /// <summary>
+    /// Indicates whether this is a folder node (not a document).
+    /// </summary>
+    public bool IsFolder => Document == null;
+
+    /// <summary>
+    /// Indicates whether this is a subfolder (a folder that's not a main type folder).
+    /// </summary>
+    public bool IsSubfolder => IsFolder && !IsRoot && !IsManuscriptFolder && 
+                               !IsCharactersFolder && !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder;
+
+    /// <summary>
+    /// Indicates whether this folder can have subfolders created in it.
+    /// </summary>
+    public bool CanCreateSubfolder => IsManuscriptFolder || IsCharactersFolder || IsLocationsFolder || IsResearchFolder || IsNotesFolder || IsSubfolder;
+
+    /// <summary>
+    /// Indicates whether this subfolder can contain characters.
+    /// </summary>
+    public bool CanContainCharacters => IsCharactersFolder || (IsSubfolder && FolderDocumentType == DocumentType.Character);
+
+    /// <summary>
+    /// Indicates whether this subfolder can contain locations.
+    /// </summary>
+    public bool CanContainLocations => IsLocationsFolder || (IsSubfolder && FolderDocumentType == DocumentType.Location);
+
+    /// <summary>
+    /// Indicates whether this folder can contain chapters (Manuscript folder or its subfolders).
+    /// </summary>
+    public bool CanContainChapters => IsManuscriptFolder || (IsSubfolder && FolderDocumentType == DocumentType.Chapter);
+
+    /// <summary>
+    /// Indicates whether this folder can contain notes (Notes folder or Research folder or their subfolders).
+    /// </summary>
+    public bool CanContainNotes => IsNotesFolder || IsResearchFolder || (IsSubfolder && (FolderDocumentType == DocumentType.Note || FolderDocumentType == DocumentType.Research));
+}

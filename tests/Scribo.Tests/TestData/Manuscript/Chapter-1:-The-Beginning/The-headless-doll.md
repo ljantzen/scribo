@@ -1,0 +1,1 @@
+The doll wasy lying at the bottom of the stairwell.  Almost lifesize. 
