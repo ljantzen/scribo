@@ -50,15 +50,15 @@
                 <MenuItem Header="_Paste" Command="{Binding PasteCommand}"/>
             </MenuItem>
             <MenuItem Header="_View">
+                <MenuItem Header="_Toggle View Mode" 
+                          Command="{Binding ToggleViewModeCommand}"/>
+                <Separator/>
                 <MenuItem Header="_Project Tree Left" 
                           Command="{Binding ToggleProjectTreeSideCommand}"/>
                 <MenuItem Header="_Project Tree Right" 
                           Command="{Binding ToggleProjectTreeSideCommand}"/>
             </MenuItem>
             <MenuItem Header="_Tools">
-                <MenuItem Header="_Word Count" Command="{Binding ShowWordCountCommand}"/>
-                <MenuItem Header="_Character Count" Command="{Binding ShowCharacterCountCommand}"/>
-                <Separator/>
                 <MenuItem Header="_Plugin Manager" Command="{Binding ShowPluginManagerCommand}"/>
             </MenuItem>
             <MenuItem Header="_Help">
@@ -162,15 +162,52 @@
                           IsVisible="{Binding IsProjectTreeOnLeft}"
                           ResizeDirection="Columns"/>
 
-            <!-- Text Editor -->
-            <TextBox Grid.Row="0" Grid.Column="2"
-                     Text="{Binding EditorText, Mode=TwoWay}"
-                     AcceptsReturn="True"
-                     AcceptsTab="True"
-                     TextWrapping="Wrap"
-                     FontFamily="Consolas"
-                     FontSize="14"
-                     Padding="10"/>
+            <!-- Text Editor / Preview -->
+            <Grid Grid.Row="0" Grid.Column="2">
+                <!-- Source Mode: TextBox -->
+                <TextBox x:Name="sourceTextBox"
+                         Text="{Binding EditorText, Mode=TwoWay}"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="Wrap"
+                         FontFamily="Consolas"
+                         FontSize="14"
+                         Padding="10"
+                         IsVisible="{Binding IsSourceMode}"/>
+                
+                <!-- Preview Mode: ScrollViewer with formatted markdown -->
+                <ScrollViewer x:Name="previewScrollViewer"
+                              IsVisible="{Binding IsPreviewMode}"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto"
+                              Background="White">
+                    <Border Background="White"
+                            Padding="20">
+                        <ItemsControl ItemsSource="{Binding RenderedMarkdownBlocks}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Vertical"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,4"
+                                            Padding="{Binding Padding}"
+                                            Background="{Binding Background}">
+                                        <TextBlock TextWrapping="Wrap"
+                                                   FontSize="{Binding FontSize}"
+                                                   FontWeight="{Binding FontWeight}"
+                                                   FontFamily="{Binding FontFamily}"
+                                                   Foreground="Black"
+                                                   Text="{Binding DisplayText}">
+                                        </TextBlock>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </ScrollViewer>
+            </Grid>
 
             <!-- Splitter for right side -->
             <GridSplitter Grid.Row="0" Grid.Column="3" 
