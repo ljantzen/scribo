@@ -2335,13 +2335,18 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ShowPreferences()
     {
+        var settingsService = new Services.ApplicationSettingsService();
         var viewModel = new PreferencesViewModel((prefs) =>
         {
-            // TODO: Save preferences to application settings
-            // For now, just close the dialog
-        });
+            // Settings are saved automatically by PreferencesViewModel
+            // Reload shortcuts in MainWindow
+            if (_parentWindow is Views.MainWindow mainWindow)
+            {
+                mainWindow.ReloadKeyboardShortcuts();
+            }
+        }, settingsService);
 
-        var dialog = new PreferencesWindow(viewModel)
+        var dialog = new Views.PreferencesWindow(viewModel)
         {
             WindowStartupLocation = WindowStartupLocation.CenterOwner
         };

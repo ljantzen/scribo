@@ -19,9 +19,9 @@
     <DockPanel>
         <!-- Menu Bar -->
         <Menu DockPanel.Dock="Top" x:Name="mainMenu">
-            <MenuItem Header="_File">
-                <MenuItem Header="_New Project" Command="{Binding NewProjectCommand}"/>
-                <MenuItem Header="_Open Project" Command="{Binding OpenProjectCommand}"/>
+            <MenuItem Header="_File" x:Name="fileMenu">
+                <MenuItem Header="_New Project" Command="{Binding NewProjectCommand}" x:Name="newProjectMenuItem"/>
+                <MenuItem Header="_Open Project" Command="{Binding OpenProjectCommand}" x:Name="openProjectMenuItem"/>
                 <MenuItem Header="Recent Projects" 
                           ItemsSource="{Binding RecentProjects}"
                           IsVisible="{Binding HasRecentProjects}">
@@ -34,24 +34,25 @@
                     </MenuItem.ItemTemplate>
                 </MenuItem>
                 <Separator/>
-                <MenuItem Header="_Save Project" Command="{Binding SaveProjectCommand}"/>
-                <MenuItem Header="Save Project _As" Command="{Binding SaveProjectAsCommand}"/>
+                <MenuItem Header="_Save Project" Command="{Binding SaveProjectCommand}" x:Name="saveProjectMenuItem"/>
+                <MenuItem Header="Save Project _As" Command="{Binding SaveProjectAsCommand}" x:Name="saveProjectAsMenuItem"/>
                 <Separator/>
-                <MenuItem Header="_Preferences" Command="{Binding ShowPreferencesCommand}"/>
+                <MenuItem Header="_Preferences" Command="{Binding ShowPreferencesCommand}" x:Name="preferencesMenuItem"/>
                 <Separator/>
-                <MenuItem Header="E_xit" Command="{Binding ExitCommand}"/>
+                <MenuItem Header="E_xit" Command="{Binding ExitCommand}" x:Name="exitMenuItem"/>
             </MenuItem>
-            <MenuItem Header="_Edit">
-                <MenuItem Header="_Undo" Command="{Binding UndoCommand}"/>
-                <MenuItem Header="_Redo" Command="{Binding RedoCommand}"/>
+            <MenuItem Header="_Edit" x:Name="editMenu">
+                <MenuItem Header="_Undo" Command="{Binding UndoCommand}" x:Name="undoMenuItem"/>
+                <MenuItem Header="_Redo" Command="{Binding RedoCommand}" x:Name="redoMenuItem"/>
                 <Separator/>
-                <MenuItem Header="_Cut" Command="{Binding CutCommand}"/>
-                <MenuItem Header="_Copy" Command="{Binding CopyCommand}"/>
-                <MenuItem Header="_Paste" Command="{Binding PasteCommand}"/>
+                <MenuItem Header="_Cut" Command="{Binding CutCommand}" x:Name="cutMenuItem"/>
+                <MenuItem Header="_Copy" Command="{Binding CopyCommand}" x:Name="copyMenuItem"/>
+                <MenuItem Header="_Paste" Command="{Binding PasteCommand}" x:Name="pasteMenuItem"/>
             </MenuItem>
-            <MenuItem Header="_View">
+            <MenuItem Header="_View" x:Name="viewMenu">
                 <MenuItem Header="_Toggle View Mode" 
-                          Command="{Binding ToggleViewModeCommand}"/>
+                          Command="{Binding ToggleViewModeCommand}"
+                          x:Name="toggleViewModeMenuItem"/>
                 <Separator/>
                 <MenuItem Header="_Project Tree Left" 
                           Command="{Binding ToggleProjectTreeSideCommand}"/>

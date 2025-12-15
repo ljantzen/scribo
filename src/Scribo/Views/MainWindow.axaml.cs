@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -37,6 +38,107 @@ public partial class MainWindow : Window
         // Setup drag and drop handlers
         AddHandler(DragDrop.DropEvent, OnTreeViewDrop);
         AddHandler(DragDrop.DragOverEvent, OnTreeViewDragOver);
+        
+        // Setup keyboard shortcuts
+        KeyDown += OnWindowKeyDown;
+        
+        // Load and apply keyboard shortcuts from settings
+        LoadKeyboardShortcuts();
+    }
+    
+    public void ReloadKeyboardShortcuts()
+    {
+        LoadKeyboardShortcuts();
+    }
+    
+    private void LoadKeyboardShortcuts()
+    {
+        var settingsService = new ApplicationSettingsService();
+        var settings = settingsService.LoadSettings();
+        
+        // Apply shortcuts to menu items
+        ApplyShortcut("NewProject", settings.KeyboardShortcuts, newProjectMenuItem);
+        ApplyShortcut("OpenProject", settings.KeyboardShortcuts, openProjectMenuItem);
+        ApplyShortcut("SaveProject", settings.KeyboardShortcuts, saveProjectMenuItem);
+        ApplyShortcut("SaveProjectAs", settings.KeyboardShortcuts, saveProjectAsMenuItem);
+        ApplyShortcut("Preferences", settings.KeyboardShortcuts, preferencesMenuItem);
+        ApplyShortcut("Exit", settings.KeyboardShortcuts, exitMenuItem);
+        ApplyShortcut("Undo", settings.KeyboardShortcuts, undoMenuItem);
+        ApplyShortcut("Redo", settings.KeyboardShortcuts, redoMenuItem);
+        ApplyShortcut("Cut", settings.KeyboardShortcuts, cutMenuItem);
+        ApplyShortcut("Copy", settings.KeyboardShortcuts, copyMenuItem);
+        ApplyShortcut("Paste", settings.KeyboardShortcuts, pasteMenuItem);
+        ApplyShortcut("ToggleViewMode", settings.KeyboardShortcuts, toggleViewModeMenuItem);
+    }
+    
+    private void ApplyShortcut(string actionName, Dictionary<string, string> shortcuts, MenuItem? menuItem)
+    {
+        if (menuItem == null) return;
+        
+        if (shortcuts.ContainsKey(actionName))
+        {
+            try
+            {
+                menuItem.HotKey = KeyGesture.Parse(shortcuts[actionName]);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error parsing shortcut '{shortcuts[actionName]}' for {actionName}: {ex.Message}");
+            }
+        }
+    }
+    
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        // Handle F2 for rename (configurable shortcut)
+        if (DataContext is MainWindowViewModel vm)
+        {
+            var settingsService = new ApplicationSettingsService();
+            var settings = settingsService.LoadSettings();
+            
+            string renameShortcut = settings.KeyboardShortcuts.ContainsKey("Rename") 
+                ? settings.KeyboardShortcuts["Rename"] 
+                : "F2";
+            
+            // Parse and check if this matches the rename shortcut
+            try
+            {
+                var gesture = KeyGesture.Parse(renameShortcut);
+                if (gesture.Matches(e))
+                {
+                    if (vm.SelectedProjectItem != null && 
+                        (vm.SelectedProjectItem.IsChapter || vm.SelectedProjectItem.Document != null || vm.SelectedProjectItem.IsSubfolder))
+                    {
+                        e.Handled = true;
+                        vm.RenameChapterCommand.Execute(vm.SelectedProjectItem);
+                        
+                        // Focus the rename TextBox after a brief delay
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            FocusRenameTextBox();
+                        }, DispatcherPriority.Loaded);
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback to F2 if parsing fails
+                if (e.Key == Key.F2)
+                {
+                    if (vm.SelectedProjectItem != null && 
+                        (vm.SelectedProjectItem.IsChapter || vm.SelectedProjectItem.Document != null || vm.SelectedProjectItem.IsSubfolder))
+                    {
+                        e.Handled = true;
+                        vm.RenameChapterCommand.Execute(vm.SelectedProjectItem);
+                        
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            FocusRenameTextBox();
+                        }, DispatcherPriority.Loaded);
+                    }
+                }
+            }
+        }
     }
 
     private void OnProjectPropertiesClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
