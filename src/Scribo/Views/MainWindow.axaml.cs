@@ -124,6 +124,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Don't show autocomplete if TextBox doesn't have focus (programmatic changes)
+        // Autocomplete should only appear when user is actively typing
+        if (!textBox.IsFocused)
+        {
+            vm.DocumentLinkAutocompleteViewModel.Hide();
+            return;
+        }
+
         // Use TextBox.Text directly as it's already updated when this event fires
         var text = textBox.Text ?? string.Empty;
         var caretIndex = textBox.CaretIndex;
@@ -155,42 +163,48 @@ public partial class MainWindow : Window
         {
             var absoluteBracketIndex = searchStart + lastBracketIndex;
             
-            // Check if we're still inside a [[...]] block (not closed yet)
-            // Look for ]] after the [[
-            var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
-            var closingBracketIndex = textAfterBracket.IndexOf("]]");
-            
             // Calculate caret position relative to the [[
             // caretIndex is the position after the last typed character
             // If we just typed [[, caretIndex would be 2 (after both brackets)
             var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
             
-            // Only show autocomplete if:
-            // 1. No closing ]] found anywhere after [[, OR
-            // 2. Closing ]] exists but is after the caret position
-            if (closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2)
+            // Only show autocomplete if caret is immediately after [[ (user just typed it)
+            // Don't show if caret is at position 0 or far from [[ (likely programmatic load)
+            // Allow showing if caret is at [[ position + 2 or more (user typed [[ and possibly more)
+            if (caretOffsetFromBracketStart >= 2)
             {
-                // Extract query text between [[ and caret
-                var queryStart = absoluteBracketIndex + 2; // After [[
-                var queryLength = Math.Max(0, caretIndex - queryStart);
+                // Check if we're still inside a [[...]] block (not closed yet)
+                // Look for ]] after the [[
+                var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
+                var closingBracketIndex = textAfterBracket.IndexOf("]]");
                 
-                if (queryStart <= text.Length)
+                // Only show autocomplete if:
+                // 1. No closing ]] found anywhere after [[, OR
+                // 2. Closing ]] exists but is after the caret position
+                if (closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2)
                 {
-                    var actualQueryLength = Math.Min(queryLength, text.Length - queryStart);
-                    var query = actualQueryLength > 0 ? text.Substring(queryStart, actualQueryLength) : string.Empty;
+                    // Extract query text between [[ and caret
+                    var queryStart = absoluteBracketIndex + 2; // After [[
+                    var queryLength = Math.Max(0, caretIndex - queryStart);
                     
-                    // Don't show autocomplete if query contains ]]
-                    if (!query.Contains("]]"))
+                    if (queryStart <= text.Length)
                     {
-                        // Update autocomplete with query (this will show popup if there are suggestions)
-                        vm.DocumentLinkAutocompleteViewModel.UpdateQuery(query);
+                        var actualQueryLength = Math.Min(queryLength, text.Length - queryStart);
+                        var query = actualQueryLength > 0 ? text.Substring(queryStart, actualQueryLength) : string.Empty;
                         
-                        // Update popup position after a brief delay to ensure UI is updated
-                        Dispatcher.UIThread.Post(() =>
+                        // Don't show autocomplete if query contains ]]
+                        if (!query.Contains("]]"))
                         {
-                            UpdateAutocompletePopupPosition();
-                        }, DispatcherPriority.Loaded);
-                        return;
+                            // Update autocomplete with query (this will show popup if there are suggestions)
+                            vm.DocumentLinkAutocompleteViewModel.UpdateQuery(query);
+                            
+                            // Update popup position after a brief delay to ensure UI is updated
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                UpdateAutocompletePopupPosition();
+                            }, DispatcherPriority.Loaded);
+                            return;
+                        }
                     }
                 }
             }

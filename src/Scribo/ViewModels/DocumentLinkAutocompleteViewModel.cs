@@ -24,7 +24,14 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     public void SetDocuments(List<Document> documents)
     {
         _allDocuments = documents ?? new List<Document>();
-        UpdateSuggestions();
+        // Don't update suggestions or show popup when documents are set
+        // Only update when UpdateQuery is explicitly called (user typing)
+        // Hide popup if it was visible
+        if (IsVisible)
+        {
+            IsVisible = false;
+            Suggestions.Clear();
+        }
     }
 
     public void UpdateQuery(string query)
