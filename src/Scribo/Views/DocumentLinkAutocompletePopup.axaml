@@ -11,7 +11,8 @@
             BoxShadow="0 2 8 0 #00000040"
             MaxHeight="300"
             MinWidth="300">
-        <ListBox ItemsSource="{Binding Suggestions}"
+        <ListBox x:Name="autocompleteListBox"
+                 ItemsSource="{Binding Suggestions}"
                  SelectedIndex="{Binding SelectedIndex}"
                  Background="Transparent"
                  BorderThickness="0"
@@ -26,19 +27,19 @@
                     </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
-            <ListBox.ItemContainerTheme>
-                <ControlTheme TargetType="ListBoxItem">
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
                     <Setter Property="Padding" Value="0"/>
                     <Setter Property="Background" Value="Transparent"/>
-                    <Style Selector=":pointerover">
-                        <Setter Property="Background" Value="#E0E0E0"/>
-                    </Style>
-                    <Style Selector=":selected">
-                        <Setter Property="Background" Value="#0078D4"/>
-                        <Setter Property="Foreground" Value="White"/>
-                    </Style>
-                </ControlTheme>
-            </ListBox.ItemContainerTheme>
+                </Style>
+                <Style Selector="ListBoxItem:pointerover">
+                    <Setter Property="Background" Value="#E0E0E0"/>
+                </Style>
+                <Style Selector="ListBoxItem:selected">
+                    <Setter Property="Background" Value="#0078D4"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Style>
+            </ListBox.Styles>
         </ListBox>
     </Border>
 </UserControl>

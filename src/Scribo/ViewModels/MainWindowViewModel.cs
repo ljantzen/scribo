@@ -8,6 +8,8 @@ using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -1064,6 +1066,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public void LoadProjectIntoTree(Project project)
     {
         _currentProject = project;
+        
+        // Update autocomplete documents when project is loaded
+        UpdateAutocompleteDocuments();
         ProjectTreeItems.Clear();
         
         // Ensure ProjectDirectory is set on all documents if we have a project path
@@ -2433,6 +2438,21 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand]
+    private void RenameItem(ProjectTreeItemViewModel? item)
+    {
+        if (item == null)
+        {
+            item = SelectedProjectItem;
+        }
+
+        // Allow renaming for documents (chapters, scenes, characters, locations, notes, research) and subfolders
+        if (item != null && (item.Document != null || item.IsSubfolder))
+        {
+            StartRename(item);
+        }
+    }
+
     private void StartRename(ProjectTreeItemViewModel item)
     {
         // Cancel any existing rename
@@ -2481,12 +2501,9 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             item.Document.Title = newName;
             
-            // If project is saved, update the content file path
-            if (_currentProject != null && !string.IsNullOrEmpty(CurrentProjectPath))
-            {
-                // Clear ContentFilePath so it gets regenerated with new name
-                item.Document.ContentFilePath = string.Empty;
-            }
+            // Don't clear ContentFilePath - let SaveProject detect the path change
+            // by comparing the current ContentFilePath with the expected path generated
+            // from the new title. This allows the file to be moved properly.
         }
 
         // Update folder path if this is a subfolder
@@ -2547,6 +2564,261 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         item.IsRenaming = false;
         item.RenameText = string.Empty;
+    }
+
+    [RelayCommand]
+    private void DeleteItem(ProjectTreeItemViewModel? item)
+    {
+        if (item == null)
+        {
+            item = SelectedProjectItem;
+        }
+
+        if (item == null || _currentProject == null)
+            return;
+
+        // Don't allow deleting root or main type folders
+        if (item.IsRoot || item.IsManuscriptFolder || item.IsCharactersFolder || 
+            item.IsLocationsFolder || item.IsResearchFolder || item.IsNotesFolder)
+            return;
+
+        // Ask for confirmation
+        var confirmed = ShowDeleteConfirmationDialog(item);
+        if (!confirmed)
+            return;
+
+        // Find the parent folder
+        ProjectTreeItemViewModel? parentFolder = null;
+        foreach (var rootItem in ProjectTreeItems)
+        {
+            parentFolder = FindParentFolder(rootItem, item);
+            if (parentFolder != null)
+                break;
+        }
+
+        if (parentFolder == null)
+            return;
+
+        // Handle document deletion
+        if (item.Document != null)
+        {
+            var document = item.Document;
+
+            // If it's a chapter, delete all child scenes first
+            if (item.IsChapter)
+            {
+                var scenesToDelete = new List<ProjectTreeItemViewModel>(item.Children.Where(c => c.IsScene));
+                foreach (var sceneItem in scenesToDelete)
+                {
+                    if (sceneItem.Document != null)
+                    {
+                        // Remove scene from project
+                        _currentProject.Documents.Remove(sceneItem.Document);
+
+                        // Delete scene content file if project is saved
+                        if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(sceneItem.Document.ContentFilePath))
+                        {
+                            var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
+                                                  Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
+                            var sceneFilePath = Path.Combine(projectDirectory, sceneItem.Document.ContentFilePath);
+                            try
+                            {
+                                if (File.Exists(sceneFilePath))
+                                {
+                                    File.Delete(sceneFilePath);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Error deleting scene file {sceneFilePath}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Remove document from project
+            _currentProject.Documents.Remove(document);
+
+            // Delete content file if project is saved
+            if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(document.ContentFilePath))
+            {
+                var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
+                                      Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
+                var documentFilePath = Path.Combine(projectDirectory, document.ContentFilePath);
+                try
+                {
+                    if (File.Exists(documentFilePath))
+                    {
+                        File.Delete(documentFilePath);
+                    }
+
+                    // If it's a chapter, also delete the chapter folder
+                    if (item.IsChapter)
+                    {
+                        var chapterFolder = Path.GetDirectoryName(documentFilePath);
+                        if (!string.IsNullOrEmpty(chapterFolder) && Directory.Exists(chapterFolder))
+                        {
+                            try
+                            {
+                                Directory.Delete(chapterFolder, true);
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Error deleting chapter folder {chapterFolder}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error deleting document file {documentFilePath}: {ex.Message}");
+                }
+            }
+
+            // Clear editor if this document was selected
+            if (item == SelectedProjectItem)
+            {
+                EditorText = string.Empty;
+                CurrentFilePath = string.Empty;
+                SelectedProjectItem = null;
+            }
+        }
+        // Handle subfolder deletion
+        else if (item.IsSubfolder)
+        {
+            // Delete all documents in the subfolder recursively (including nested subfolders)
+            var documentsToDelete = new List<ProjectTreeItemViewModel>();
+            CollectDocumentsRecursive(item, documentsToDelete);
+
+            foreach (var docItem in documentsToDelete)
+            {
+                if (docItem.Document != null)
+                {
+                    // Remove document from project
+                    _currentProject.Documents.Remove(docItem.Document);
+
+                    // Delete content file if project is saved
+                    if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(docItem.Document.ContentFilePath))
+                    {
+                        var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
+                                              Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
+                        var docFilePath = Path.Combine(projectDirectory, docItem.Document.ContentFilePath);
+                        try
+                        {
+                            if (File.Exists(docFilePath))
+                            {
+                                File.Delete(docFilePath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Error deleting document file {docFilePath}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // Clear editor if a document in this folder was selected
+            if (SelectedProjectItem != null && documentsToDelete.Contains(SelectedProjectItem))
+            {
+                EditorText = string.Empty;
+                CurrentFilePath = string.Empty;
+                SelectedProjectItem = null;
+            }
+        }
+
+        // Remove item from parent's children
+        parentFolder.Children.Remove(item);
+
+        // Update document orders in parent folder
+        UpdateDocumentOrders(parentFolder);
+
+        // Mark as having unsaved changes
+        HasUnsavedChanges = true;
+    }
+
+    private void CollectDocumentsRecursive(ProjectTreeItemViewModel item, List<ProjectTreeItemViewModel> documents)
+    {
+        if (item.Document != null)
+        {
+            documents.Add(item);
+        }
+
+        foreach (var child in item.Children)
+        {
+            CollectDocumentsRecursive(child, documents);
+        }
+    }
+
+    private bool ShowDeleteConfirmationDialog(ProjectTreeItemViewModel item)
+    {
+        if (_parentWindow == null)
+            return false;
+
+        // Build confirmation message
+        string message;
+        if (item.Document != null)
+        {
+            var itemType = item.Document.Type switch
+            {
+                DocumentType.Chapter => "chapter",
+                DocumentType.Scene => "scene",
+                DocumentType.Character => "character",
+                DocumentType.Location => "location",
+                DocumentType.Note => "note",
+                DocumentType.Research => "research",
+                _ => "item"
+            };
+
+            if (item.IsChapter && item.Children.Any(c => c.IsScene))
+            {
+                var sceneCount = item.Children.Count(c => c.IsScene);
+                message = $"Are you sure you want to delete the {itemType} \"{item.Name}\" and all {sceneCount} scene{(sceneCount == 1 ? "" : "s")} in it?\n\nThis action cannot be undone.";
+            }
+            else
+            {
+                message = $"Are you sure you want to delete the {itemType} \"{item.Name}\"?\n\nThis action cannot be undone.";
+            }
+        }
+        else if (item.IsSubfolder)
+        {
+            var documentsToDelete = new List<ProjectTreeItemViewModel>();
+            CollectDocumentsRecursive(item, documentsToDelete);
+            var docCount = documentsToDelete.Count;
+            
+            if (docCount > 0)
+            {
+                message = $"Are you sure you want to delete the folder \"{item.Name}\" and all {docCount} document{(docCount == 1 ? "" : "s")} in it?\n\nThis action cannot be undone.";
+            }
+            else
+            {
+                message = $"Are you sure you want to delete the folder \"{item.Name}\"?\n\nThis action cannot be undone.";
+            }
+        }
+        else
+        {
+            message = $"Are you sure you want to delete \"{item.Name}\"?\n\nThis action cannot be undone.";
+        }
+
+        // Create confirmation dialog using XAML-based window
+        var dialog = new ConfirmDeleteWindow(message)
+        {
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        
+        // Show dialog synchronously - ShowDialog blocks until dialog closes
+        if (_parentWindow != null)
+        {
+            dialog.ShowDialog(_parentWindow);
+        }
+        else
+        {
+            dialog.Show();
+        }
+
+        // Return the result
+        return dialog.Result;
     }
 
     [RelayCommand]

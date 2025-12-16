@@ -123,8 +123,11 @@
                                                      IsVisible="{Binding CanContainChapters}"
                                                      Click="OnAddChapterClick"/>
                                             <MenuItem Header="Rename" 
-                                                     IsVisible="{Binding IsChapter}"
-                                                     Click="OnRenameChapterClick"/>
+                                                     IsVisible="{Binding CanRename}"
+                                                     Click="OnRenameClick"/>
+                                            <MenuItem Header="Delete" 
+                                                     IsVisible="{Binding CanDelete}"
+                                                     Click="OnDeleteClick"/>
                                             <MenuItem Header="Create scene" 
                                                      IsVisible="{Binding IsChapter}"
                                                      Click="OnAddSceneClick"/>
@@ -203,8 +206,8 @@
                           IsOpen="{Binding DocumentLinkAutocompleteViewModel.IsVisible}"
                           PlacementTarget="{Binding #sourceTextBox}"
                           PlacementMode="Bottom"
-                          HorizontalOffset="0"
-                          VerticalOffset="0">
+                          HorizontalOffset="10"
+                          VerticalOffset="5">
                         <views:DocumentLinkAutocompletePopup 
                             DataContext="{Binding DocumentLinkAutocompleteViewModel}"/>
                     </Popup>
@@ -273,8 +276,11 @@
                                                      IsVisible="{Binding CanContainChapters}"
                                                      Click="OnAddChapterClick"/>
                                             <MenuItem Header="Rename" 
-                                                     IsVisible="{Binding IsChapter}"
-                                                     Click="OnRenameChapterClick"/>
+                                                     IsVisible="{Binding CanRename}"
+                                                     Click="OnRenameClick"/>
+                                            <MenuItem Header="Delete" 
+                                                     IsVisible="{Binding CanDelete}"
+                                                     Click="OnDeleteClick"/>
                                             <MenuItem Header="Create scene" 
                                                      IsVisible="{Binding IsChapter}"
                                                      Click="OnAddSceneClick"/>

@@ -36,7 +36,10 @@ public partial class MarkdownBlockControl : UserControl
         if (textBlock == null)
             return;
 
-        var inlines = contentTextBlock.Inlines;
+        var inlines = textBlock.Inlines;
+        if (inlines == null)
+            return;
+            
         inlines.Clear();
 
         if (block.Links == null || block.Links.Count == 0)

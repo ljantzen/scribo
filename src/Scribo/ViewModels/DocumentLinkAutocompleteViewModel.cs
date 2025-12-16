@@ -29,7 +29,13 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
 
     public void UpdateQuery(string query)
     {
-        _currentQuery = query ?? string.Empty;
+        var newQuery = query ?? string.Empty;
+        
+        // Only update if query actually changed (to avoid unnecessary updates)
+        if (_currentQuery == newQuery)
+            return;
+            
+        _currentQuery = newQuery;
         SelectedIndex = -1;
         UpdateSuggestions();
     }
@@ -38,10 +44,16 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     {
         Suggestions.Clear();
 
+        if (_allDocuments.Count == 0)
+        {
+            IsVisible = false;
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_currentQuery))
         {
-            // Show all documents if no query
-            foreach (var doc in _allDocuments.OrderBy(d => d.Title))
+            // Show all documents if no query (limit to 20)
+            foreach (var doc in _allDocuments.OrderBy(d => d.Title).Take(20))
             {
                 Suggestions.Add(doc);
             }
@@ -50,10 +62,29 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
         {
             // Filter documents by query (case-insensitive)
             var queryLower = _currentQuery.ToLowerInvariant();
-            var filtered = _allDocuments
-                .Where(d => d.Title.Contains(queryLower, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(d => d.Title)
-                .Take(20); // Limit to 20 suggestions
+            var query = _currentQuery;
+            
+            // Prioritize: exact matches, then starts with, then contains
+            var exactMatches = _allDocuments
+                .Where(d => d.Title.Equals(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Title);
+                
+            var startsWithMatches = _allDocuments
+                .Where(d => !d.Title.Equals(query, StringComparison.OrdinalIgnoreCase) &&
+                           d.Title.StartsWith(queryLower, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Title);
+                
+            var containsMatches = _allDocuments
+                .Where(d => !d.Title.Equals(query, StringComparison.OrdinalIgnoreCase) &&
+                           !d.Title.StartsWith(queryLower, StringComparison.OrdinalIgnoreCase) &&
+                           d.Title.Contains(queryLower, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Title);
+            
+            // Combine and limit to 20 suggestions
+            var filtered = exactMatches
+                .Concat(startsWithMatches)
+                .Concat(containsMatches)
+                .Take(20);
 
             foreach (var doc in filtered)
             {

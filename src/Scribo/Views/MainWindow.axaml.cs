@@ -48,6 +48,288 @@ public partial class MainWindow : Window
         
         // Setup find/replace
         viewModel.SelectMatchRequested += OnSelectMatch;
+        
+        // Setup document link autocomplete
+        SetupDocumentLinkAutocomplete();
+    }
+
+    private void SetupDocumentLinkAutocomplete()
+    {
+        var textBox = this.FindControl<TextBox>("sourceTextBox");
+        var popup = this.FindControl<Popup>("autocompletePopup");
+        var autocompleteControl = popup?.Child as DocumentLinkAutocompletePopup;
+        
+        if (textBox != null && popup != null && autocompleteControl != null)
+        {
+            // Handle keyboard events for autocomplete navigation
+            textBox.KeyDown += OnEditorKeyDown;
+            
+            // Attach TextChanged handler (in addition to XAML binding to ensure it's called)
+            textBox.TextChanged += OnEditorTextChanged;
+            
+            // Handle item selection from popup
+            autocompleteControl.InsertDocumentRequested += OnAutocompleteItemSelected;
+            
+            // Handle popup visibility changes
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.DocumentLinkAutocompleteViewModel.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(DocumentLinkAutocompleteViewModel.IsVisible))
+                    {
+                        if (vm.DocumentLinkAutocompleteViewModel.IsVisible)
+                        {
+                            UpdateAutocompletePopupPosition();
+                        }
+                    }
+                };
+            }
+            
+            // Close popup when clicking outside
+            PointerPressed += (s, e) =>
+            {
+                if (popup.IsOpen && autocompleteControl != null)
+                {
+                    var hitTest = e.Source as Control;
+                    if (hitTest != null && !autocompleteControl.IsPointerOver && hitTest != textBox)
+                    {
+                        if (DataContext is MainWindowViewModel viewModel)
+                        {
+                            viewModel.DocumentLinkAutocompleteViewModel.Hide();
+                        }
+                    }
+                }
+            };
+        }
+    }
+
+    private void OnAutocompleteItemSelected(Document document)
+    {
+        var textBox = this.FindControl<TextBox>("sourceTextBox");
+        if (textBox != null && DataContext is MainWindowViewModel vm)
+        {
+            InsertSelectedDocumentLink(textBox, vm, document);
+        }
+    }
+
+    private void OnEditorTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox textBox || DataContext is not MainWindowViewModel vm)
+            return;
+
+        // Only show autocomplete in source mode
+        if (!vm.IsSourceMode)
+        {
+            vm.DocumentLinkAutocompleteViewModel.Hide();
+            return;
+        }
+
+        // Use TextBox.Text directly as it's already updated when this event fires
+        var text = textBox.Text ?? string.Empty;
+        var caretIndex = textBox.CaretIndex;
+        
+        // Ensure we have a valid caret position
+        if (caretIndex < 0 || caretIndex > text.Length)
+        {
+            vm.DocumentLinkAutocompleteViewModel.Hide();
+            return;
+        }
+        
+        // Look backwards from caret to find [[
+        // Search from the beginning or up to 200 chars back
+        var searchStart = Math.Max(0, caretIndex - 200);
+        var searchLength = Math.Min(caretIndex - searchStart, text.Length - searchStart);
+        
+        if (searchLength <= 0)
+        {
+            vm.DocumentLinkAutocompleteViewModel.Hide();
+            return;
+        }
+        
+        var textBeforeCaret = text.Substring(searchStart, searchLength);
+        
+        // Find the last [[ before the caret
+        var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+        
+        if (lastBracketIndex >= 0)
+        {
+            var absoluteBracketIndex = searchStart + lastBracketIndex;
+            
+            // Check if we're still inside a [[...]] block (not closed yet)
+            // Look for ]] after the [[
+            var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
+            var closingBracketIndex = textAfterBracket.IndexOf("]]");
+            
+            // Calculate caret position relative to the [[
+            // caretIndex is the position after the last typed character
+            // If we just typed [[, caretIndex would be 2 (after both brackets)
+            var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
+            
+            // Only show autocomplete if:
+            // 1. No closing ]] found anywhere after [[, OR
+            // 2. Closing ]] exists but is after the caret position
+            if (closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2)
+            {
+                // Extract query text between [[ and caret
+                var queryStart = absoluteBracketIndex + 2; // After [[
+                var queryLength = Math.Max(0, caretIndex - queryStart);
+                
+                if (queryStart <= text.Length)
+                {
+                    var actualQueryLength = Math.Min(queryLength, text.Length - queryStart);
+                    var query = actualQueryLength > 0 ? text.Substring(queryStart, actualQueryLength) : string.Empty;
+                    
+                    // Don't show autocomplete if query contains ]]
+                    if (!query.Contains("]]"))
+                    {
+                        // Update autocomplete with query (this will show popup if there are suggestions)
+                        vm.DocumentLinkAutocompleteViewModel.UpdateQuery(query);
+                        
+                        // Update popup position after a brief delay to ensure UI is updated
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            UpdateAutocompletePopupPosition();
+                        }, DispatcherPriority.Loaded);
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // Hide autocomplete if we're not inside [[...]] or if we've closed it
+        vm.DocumentLinkAutocompleteViewModel.Hide();
+    }
+
+    private void OnEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox textBox || DataContext is not MainWindowViewModel vm)
+            return;
+
+        // Only handle autocomplete in source mode
+        if (!vm.IsSourceMode)
+            return;
+
+        var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
+        
+        // Only handle autocomplete keys if popup is visible
+        if (!autocompleteVm.IsVisible)
+            return;
+
+        switch (e.Key)
+        {
+            case Key.Down:
+                e.Handled = true;
+                autocompleteVm.SelectNext();
+                break;
+                
+            case Key.Up:
+                e.Handled = true;
+                autocompleteVm.SelectPrevious();
+                break;
+                
+            case Key.Enter:
+            case Key.Tab:
+                e.Handled = true;
+                InsertSelectedDocumentLink(textBox, vm);
+                break;
+                
+            case Key.Escape:
+                e.Handled = true;
+                autocompleteVm.Hide();
+                break;
+        }
+    }
+
+    private void InsertSelectedDocumentLink(TextBox textBox, MainWindowViewModel vm, Document? document = null)
+    {
+        var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
+        var selectedDoc = document ?? autocompleteVm.GetSelectedDocument();
+        
+        if (selectedDoc == null && autocompleteVm.Suggestions.Count > 0)
+        {
+            // If nothing selected, use first suggestion
+            selectedDoc = autocompleteVm.Suggestions[0];
+        }
+        
+        if (selectedDoc == null)
+            return;
+
+        var text = textBox.Text ?? string.Empty;
+        var caretIndex = textBox.CaretIndex;
+        
+        // Find the [[ that started this link
+        var searchStart = Math.Max(0, caretIndex - 100);
+        var textBeforeCaret = text.Substring(searchStart, caretIndex - searchStart);
+        var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+        
+        if (lastBracketIndex < 0)
+        {
+            autocompleteVm.Hide();
+            return;
+        }
+        
+        var absoluteBracketIndex = searchStart + lastBracketIndex;
+        var linkStart = absoluteBracketIndex + 2; // After [[
+        
+        // Replace text from [[ to caret with [[Document Title]]
+        var beforeLink = text.Substring(0, absoluteBracketIndex);
+        var afterCaret = text.Substring(caretIndex);
+        var newText = beforeLink + "[[" + selectedDoc.Title + "]]" + afterCaret;
+        
+        // Update text
+        textBox.Text = newText;
+        
+        // Position caret after the inserted link
+        var newCaretIndex = absoluteBracketIndex + 2 + selectedDoc.Title.Length + 2; // [[ + title + ]]
+        textBox.CaretIndex = newCaretIndex;
+        
+        // Hide autocomplete
+        autocompleteVm.Hide();
+        
+        // Update view model
+        vm.EditorText = newText;
+    }
+
+    private void UpdateAutocompletePopupPosition()
+    {
+        var textBox = this.FindControl<TextBox>("sourceTextBox");
+        var popup = this.FindControl<Popup>("autocompletePopup");
+        
+        if (textBox == null || popup == null)
+            return;
+
+        // Get caret position
+        var caretIndex = textBox.CaretIndex;
+        var text = textBox.Text ?? string.Empty;
+        
+        // Find the [[ that started this link
+        var searchStart = Math.Max(0, caretIndex - 100);
+        var textBeforeCaret = text.Substring(searchStart, caretIndex - searchStart);
+        var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+        
+        if (lastBracketIndex < 0)
+            return;
+        
+        var absoluteBracketIndex = searchStart + lastBracketIndex;
+        
+        // Calculate line and column for the [[ position
+        var textToBracket = text.Substring(0, absoluteBracketIndex);
+        var lines = textToBracket.Split('\n');
+        var lineNumber = lines.Length - 1;
+        var columnNumber = lines.LastOrDefault()?.Length ?? 0;
+        
+        // Approximate positioning based on line number and column
+        // Note: This is approximate. For exact positioning, you'd need to measure text rendering
+        var approximateLineHeight = 20; // Approximate line height in pixels
+        var approximateCharWidth = 8; // Approximate character width in pixels
+        
+        // Position popup below the line where [[ appears
+        // Using Bottom placement mode, so we adjust horizontal offset to align with [[
+        popup.HorizontalOffset = 10 + (columnNumber * approximateCharWidth); // Align with [[ position
+        popup.VerticalOffset = 5; // Small offset below current line
+        
+        // Ensure popup is visible
+        popup.IsOpen = true;
     }
 
     private bool _isSelectingMatch = false;
@@ -311,6 +593,40 @@ public partial class MainWindow : Window
             {
                 FocusRenameTextBox();
             }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnRenameClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.RenameItemCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnDeleteClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.DeleteItemCommand.Execute(item);
         }
     }
 

@@ -132,4 +132,16 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     /// Indicates whether this folder can contain notes (Notes folder or Research folder or their subfolders).
     /// </summary>
     public bool CanContainNotes => IsNotesFolder || IsResearchFolder || (IsSubfolder && (FolderDocumentType == DocumentType.Note || FolderDocumentType == DocumentType.Research));
+
+    /// <summary>
+    /// Indicates whether this item can be renamed (documents and subfolders).
+    /// </summary>
+    public bool CanRename => Document != null || IsSubfolder;
+
+    /// <summary>
+    /// Indicates whether this item can be deleted (documents and subfolders, but not root or main folders).
+    /// </summary>
+    public bool CanDelete => (Document != null || IsSubfolder) && 
+                            !IsRoot && !IsManuscriptFolder && !IsCharactersFolder && 
+                            !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder;
 }
