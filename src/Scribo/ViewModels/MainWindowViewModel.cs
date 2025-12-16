@@ -2845,6 +2845,15 @@ public partial class MainWindowViewModel : ViewModelBase
             // Update MRU list
             _mruService.AddProject(filePath, project.Name);
             UpdateRecentProjectsList();
+            
+            // Close menu if parent window is MainWindow
+            if (_parentWindow is Views.MainWindow mainWindow)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    mainWindow.CloseAllMenus();
+                }, DispatcherPriority.Loaded);
+            }
         }
         catch (Exception ex)
         {

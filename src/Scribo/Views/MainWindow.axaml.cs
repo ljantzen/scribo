@@ -8,6 +8,8 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Avalonia;
+using Avalonia.Media;
+using Avalonia.Layout;
 using Scribo.Models;
 using Scribo.Services;
 using Scribo.ViewModels;
@@ -16,6 +18,16 @@ namespace Scribo.Views;
 
 public partial class MainWindow : Window
 {
+    // Set to false to disable all debug tracing
+    private const bool ENABLE_DEBUG_TRACING = false;
+    
+    private void DebugTrace(string message)
+    {
+        if (ENABLE_DEBUG_TRACING)
+        {
+            Console.WriteLine($"[DEBUG] {message}");
+        }
+    }
     private readonly PluginManager _pluginManager;
     private readonly PluginContext _pluginContext;
 
@@ -441,6 +453,9 @@ public partial class MainWindow : Window
         var settingsService = new ApplicationSettingsService();
         var settings = settingsService.LoadSettings();
         
+        // Store original header texts before modifying
+        StoreOriginalHeaders();
+        
         // Apply shortcuts to menu items
         ApplyShortcut("NewProject", settings.KeyboardShortcuts, newProjectMenuItem);
         ApplyShortcut("OpenProject", settings.KeyboardShortcuts, openProjectMenuItem);
@@ -458,25 +473,262 @@ public partial class MainWindow : Window
         ApplyShortcut("Search", settings.KeyboardShortcuts, searchMenuItem);
     }
     
-    private void ApplyShortcut(string actionName, Dictionary<string, string> shortcuts, MenuItem? menuItem)
+    private Dictionary<MenuItem, string> _originalHeaders = new();
+    
+    private void StoreOriginalHeaders()
     {
-        if (menuItem == null) return;
-        
-        if (shortcuts.ContainsKey(actionName))
+        // Store original header texts if not already stored
+        var menuItems = new[]
         {
-            try
+            (newProjectMenuItem, "_New Project"),
+            (openProjectMenuItem, "_Open Project"),
+            (saveProjectMenuItem, "_Save Project"),
+            (saveProjectAsMenuItem, "Save Project _As"),
+            (preferencesMenuItem, "_Preferences"),
+            (exitMenuItem, "E_xit"),
+            (undoMenuItem, "_Undo"),
+            (redoMenuItem, "_Redo"),
+            (findMenuItem, "_Find"),
+            (cutMenuItem, "_Cut"),
+            (copyMenuItem, "_Copy"),
+            (pasteMenuItem, "_Paste"),
+            (toggleViewModeMenuItem, "_Toggle View Mode"),
+            (searchMenuItem, "_Search")
+        };
+        
+        foreach (var (menuItem, defaultHeader) in menuItems)
+        {
+            if (menuItem != null && !_originalHeaders.ContainsKey(menuItem))
             {
-                menuItem.HotKey = KeyGesture.Parse(shortcuts[actionName]);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error parsing shortcut '{shortcuts[actionName]}' for {actionName}: {ex.Message}");
+                // Get current header or use default
+                string header = menuItem.Header?.ToString() ?? defaultHeader;
+                _originalHeaders[menuItem] = header;
             }
         }
     }
     
+    private string GetOriginalHeader(MenuItem menuItem)
+    {
+        if (_originalHeaders.TryGetValue(menuItem, out var header))
+        {
+            return header;
+        }
+        
+        // Fallback: try to extract from current header
+        if (menuItem.Header is Grid headerGrid)
+        {
+            var textBlock = headerGrid.Children.OfType<TextBlock>().FirstOrDefault();
+            if (textBlock != null)
+            {
+                return textBlock.Text ?? string.Empty;
+            }
+        }
+        
+        return menuItem.Header?.ToString() ?? string.Empty;
+    }
+    
+    private void ApplyShortcut(string actionName, Dictionary<string, string> shortcuts, MenuItem? menuItem)
+    {
+        if (menuItem == null) return;
+        
+        string? shortcutString = null;
+        if (shortcuts.ContainsKey(actionName))
+        {
+            shortcutString = shortcuts[actionName];
+            try
+            {
+                menuItem.HotKey = KeyGesture.Parse(shortcutString);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error parsing shortcut '{shortcutString}' for {actionName}: {ex.Message}");
+                shortcutString = null;
+            }
+        }
+        
+        // Update the header to include the hotkey label
+        UpdateMenuItemHeader(menuItem, shortcutString);
+    }
+    
+    private void UpdateMenuItemHeader(MenuItem menuItem, string? shortcutString)
+    {
+        // Get the original header text
+        string headerText = GetOriginalHeader(menuItem);
+        
+        // Remove underscores for display (they're access key markers, not meant to be shown)
+        string displayText = headerText.Replace("_", "");
+        
+        // Create a Grid with the menu text on the left and hotkey on the right
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+        };
+        
+        var menuTextBlock = new TextBlock
+        {
+            Text = displayText,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(menuTextBlock, 0);
+        grid.Children.Add(menuTextBlock);
+        
+        if (!string.IsNullOrEmpty(shortcutString))
+        {
+            var hotkeyTextBlock = new TextBlock
+            {
+                Text = FormatHotkeyForDisplay(shortcutString),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Margin = new Thickness(20, 0, 0, 0),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)) // Gray color for hotkey
+            };
+            Grid.SetColumn(hotkeyTextBlock, 1);
+            grid.Children.Add(hotkeyTextBlock);
+        }
+        
+        menuItem.Header = grid;
+    }
+    
+    private string FormatHotkeyForDisplay(string shortcut)
+    {
+        // Format the shortcut string for display
+        // Replace common patterns for better readability
+        return shortcut
+            .Replace("Ctrl+", "Ctrl+")
+            .Replace("Shift+", "Shift+")
+            .Replace("Alt+", "Alt+")
+            .Replace("Meta+", "Meta+");
+    }
+    
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        DebugTrace($"OnWindowKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
+        
+        // Handle Enter key when Recent Projects submenu is open (check this FIRST)
+        if (e.Key == Key.Enter && !e.Handled && DataContext is MainWindowViewModel viewModel)
+        {
+            DebugTrace("Enter key pressed, checking Recent Projects menu");
+            var recentProjectsMenuItem = this.FindControl<MenuItem>("recentProjectsMenuItem");
+            DebugTrace($"recentProjectsMenuItem found: {recentProjectsMenuItem != null}");
+            
+            if (recentProjectsMenuItem != null)
+            {
+                DebugTrace($"IsSubMenuOpen: {recentProjectsMenuItem.IsSubMenuOpen}");
+                DebugTrace($"RecentProjects count: {viewModel.RecentProjects.Count}");
+                
+                if (viewModel.RecentProjects.Count > 0)
+                {
+                    DebugTrace($"First RecentProject: {viewModel.RecentProjects[0].ProjectName}, FilePath: {viewModel.RecentProjects[0].FilePath}");
+                }
+            }
+            
+            if (recentProjectsMenuItem != null && recentProjectsMenuItem.IsSubMenuOpen)
+            {
+                MenuItem? selectedItem = null;
+                string? filePath = null;
+                
+                // Try to find the popup that contains the menu items
+                var popup = recentProjectsMenuItem.GetVisualDescendants()
+                    .OfType<Popup>()
+                    .FirstOrDefault(p => p.IsOpen);
+                    
+                DebugTrace($"Popup found: {popup != null}");
+                if (popup != null)
+                {
+                    DebugTrace($"Popup IsOpen: {popup.IsOpen}, IsVisible: {popup.IsVisible}");
+                }
+                    
+                if (popup != null)
+                {
+                    // Find all menu items in the popup
+                    var menuItems = popup.GetVisualDescendants()
+                        .OfType<MenuItem>()
+                        .Where(mi => mi.Tag is string)
+                        .ToList();
+                    
+                    DebugTrace($"Menu items found in popup: {menuItems.Count}");
+                    
+                    for (int i = 0; i < menuItems.Count; i++)
+                    {
+                        var mi = menuItems[i];
+                        DebugTrace($"  MenuItem[{i}]: Header='{mi.Header}', Tag='{mi.Tag}', IsFocused={mi.IsFocused}, IsPointerOver={mi.IsPointerOver}, IsEnabled={mi.IsEnabled}");
+                    }
+                    
+                    // Try to find focused item
+                    selectedItem = menuItems.FirstOrDefault(mi => mi.IsFocused);
+                    DebugTrace($"Focused item found: {selectedItem != null}");
+                    if (selectedItem != null)
+                    {
+                        DebugTrace($"  Focused item: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
+                    }
+                    
+                    // If not focused, try pointer over
+                    if (selectedItem == null)
+                    {
+                        selectedItem = menuItems.FirstOrDefault(mi => mi.IsPointerOver);
+                        DebugTrace($"Pointer-over item found: {selectedItem != null}");
+                        if (selectedItem != null)
+                        {
+                            DebugTrace($"  Pointer-over item: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
+                        }
+                    }
+                    
+                    // If still not found, use first item
+                    if (selectedItem == null && menuItems.Count > 0)
+                    {
+                        selectedItem = menuItems[0];
+                        DebugTrace($"Using first menu item as fallback: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
+                    }
+                    
+                    if (selectedItem != null && selectedItem.Tag is string path)
+                    {
+                        filePath = path;
+                        DebugTrace($"FilePath from menu item: {filePath}");
+                    }
+                }
+                
+                // Fallback: if we couldn't find menu items visually, use the first recent project from ViewModel
+                if (string.IsNullOrEmpty(filePath) && viewModel.RecentProjects.Count > 0)
+                {
+                    filePath = viewModel.RecentProjects[0].FilePath;
+                    DebugTrace($"Using fallback filePath from ViewModel: {filePath}");
+                }
+                
+                if (!string.IsNullOrEmpty(filePath))
+                {
+                    DebugTrace($"Executing command with filePath: {filePath}");
+                    e.Handled = true;
+                    
+                    if (selectedItem != null)
+                    {
+                        DebugTrace($"Triggering Click event on menu item: Header='{selectedItem.Header}'");
+                        // Trigger the Click event on the menu item (this will call OnRecentProjectClick)
+                        var clickEventArgs = new RoutedEventArgs(MenuItem.ClickEvent);
+                        selectedItem.RaiseEvent(clickEventArgs);
+                    }
+                    else
+                    {
+                        DebugTrace("Executing command directly (no menu item found)");
+                        // Fallback: execute command directly
+                        CloseAllMenus();
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            DebugTrace($"Executing OpenRecentProjectCommand with: {filePath}");
+                            viewModel.OpenRecentProjectCommand.Execute(filePath);
+                        }, DispatcherPriority.Loaded);
+                    }
+                    return;
+                }
+                else
+                {
+                    DebugTrace("No filePath found, cannot execute command");
+                }
+            }
+            else
+            {
+                DebugTrace("Recent Projects submenu is not open");
+            }
+        }
+        
         if (DataContext is MainWindowViewModel vm)
         {
             var settingsService = new ApplicationSettingsService();
@@ -819,24 +1071,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnRecentProjectClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem && menuItem.Tag is string filePath && DataContext is MainWindowViewModel vm)
-        {
-            e.Handled = true;
-            
-            // Close all menus immediately
-            CloseAllMenus();
-            
-            // Execute the command after a brief delay to ensure menu closes
-            Dispatcher.UIThread.Post(() =>
-            {
-                vm.OpenRecentProjectCommand.Execute(filePath);
-            }, DispatcherPriority.Loaded);
-        }
-    }
 
-    private void CloseAllMenus()
+    public void CloseAllMenus()
     {
         var menu = this.FindControl<Menu>("mainMenu");
         if (menu != null)
@@ -849,6 +1085,304 @@ public partial class MainWindow : Window
                     topLevelMenuItem.IsSubMenuOpen = false;
                 }
             }
+        }
+    }
+    
+    
+    private MenuItem? GetSelectedRecentProjectMenuItem(MenuItem parentMenuItem)
+    {
+        // Find the menu item that is currently highlighted (has pointer over or is focused)
+        var allMenuItems = parentMenuItem.GetVisualDescendants()
+            .OfType<MenuItem>()
+            .Where(mi => mi.Tag is string)
+            .ToList();
+            
+        // First try to find one with focus
+        var focused = allMenuItems.FirstOrDefault(mi => mi.IsFocused);
+        if (focused != null)
+            return focused;
+            
+        // Then try to find one with pointer over
+        var pointerOver = allMenuItems.FirstOrDefault(mi => mi.IsPointerOver);
+        if (pointerOver != null)
+            return pointerOver;
+            
+        // If submenu is open, return the first item (default selection)
+        if (parentMenuItem.IsSubMenuOpen && allMenuItems.Count > 0)
+            return allMenuItems[0];
+            
+        return null;
+    }
+    
+    private void OnRecentProjectsSubmenuOpened(object? sender, RoutedEventArgs e)
+    {
+        DebugTrace($"OnRecentProjectsSubmenuOpened called, sender: {sender?.GetType().Name}");
+        
+        // Attach KeyDown handlers to menu items when submenu opens
+        if (sender is MenuItem parentMenuItem)
+        {
+            DebugTrace($"Parent MenuItem: Header='{parentMenuItem.Header}', IsSubMenuOpen={parentMenuItem.IsSubMenuOpen}");
+            Dispatcher.UIThread.Post(() =>
+            {
+                DebugTrace("Attaching handlers to menu items (dispatched)");
+                AttachKeyHandlersToRecentProjectItems(parentMenuItem);
+            }, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            DebugTrace("Sender is not MenuItem");
+        }
+    }
+    
+    private void AttachKeyHandlersToRecentProjectItems(MenuItem parentMenuItem)
+    {
+        DebugTrace("AttachKeyHandlersToRecentProjectItems called");
+        
+        // First, try to get items from the Items collection
+        DebugTrace($"Parent MenuItem Items count: {parentMenuItem.Items?.Count ?? 0}");
+        if (parentMenuItem.Items != null)
+        {
+            for (int i = 0; i < parentMenuItem.Items.Count; i++)
+            {
+                var item = parentMenuItem.Items[i];
+                DebugTrace($"  Items[{i}]: Type={item?.GetType().Name}, Value={item}");
+                
+                if (item is MenuItem menuItem)
+                {
+                    DebugTrace($"    MenuItem Header: '{menuItem.Header}', Tag: '{menuItem.Tag}'");
+                    menuItem.KeyDown -= OnRecentProjectMenuItemKeyDown;
+                    menuItem.KeyDown += OnRecentProjectMenuItemKeyDown;
+                    DebugTrace($"    Attached KeyDown handler to Items[{i}]");
+                }
+            }
+        }
+        
+        // Also try to find via visual tree with a delay
+        Dispatcher.UIThread.Post(() =>
+        {
+            DebugTrace("Trying visual tree search after delay");
+            FindAndAttachHandlersViaVisualTree(parentMenuItem);
+        }, DispatcherPriority.Loaded);
+    }
+    
+    private void FindAndAttachHandlersViaVisualTree(MenuItem parentMenuItem)
+    {
+        // Find the popup
+        var popup = parentMenuItem.GetVisualDescendants()
+            .OfType<Popup>()
+            .FirstOrDefault(p => p.IsOpen);
+            
+        DebugTrace($"Popup search result: {popup != null}");
+        
+        if (popup != null)
+        {
+            DebugTrace($"Popup details - IsOpen: {popup.IsOpen}, IsVisible: {popup.IsVisible}");
+            DebugTrace($"Popup Child type: {popup.Child?.GetType().Name}");
+            
+            // The popup's child is likely a Panel containing the menu items
+            if (popup.Child != null)
+            {
+                DebugTrace($"Searching Popup.Child for MenuItems");
+                var menuItems = popup.Child.GetVisualDescendants()
+                    .OfType<MenuItem>()
+                    .ToList();
+                    
+                DebugTrace($"Found {menuItems.Count} MenuItem objects in Popup.Child");
+                
+                for (int i = 0; i < menuItems.Count; i++)
+                {
+                    var menuItem = menuItems[i];
+                    DebugTrace($"  MenuItem[{i}]: Header='{menuItem.Header}', Tag='{menuItem.Tag}', TagType={menuItem.Tag?.GetType().Name}");
+                    DebugTrace($"    Parent: {menuItem.GetVisualParent()?.GetType().Name}");
+                    DebugTrace($"    IsFocused: {menuItem.IsFocused}, IsPointerOver: {menuItem.IsPointerOver}");
+                }
+                
+                // Attach handlers to ALL menu items, not just those with Tags
+                // Some menu items might be wrappers or containers
+                for (int i = 0; i < menuItems.Count; i++)
+                {
+                    var menuItem = menuItems[i];
+                    DebugTrace($"  Attaching handler to MenuItem[{i}]: Header='{menuItem.Header}', Tag='{menuItem.Tag}'");
+                    
+                    // Remove existing handler to avoid duplicates
+                    menuItem.KeyDown -= OnRecentProjectMenuItemKeyDown;
+                    menuItem.KeyDown += OnRecentProjectMenuItemKeyDown;
+                    DebugTrace($"    Attached KeyDown handler to MenuItem[{i}]");
+                }
+                
+                // Also store reference to menu items with Tags for lookup
+                var menuItemsWithTag = menuItems.Where(mi => mi.Tag is string && !string.IsNullOrEmpty(mi.Tag.ToString())).ToList();
+                DebugTrace($"Menu items with Tag: {menuItemsWithTag.Count}");
+                
+            }
+            
+            // Try to find all controls in the popup
+            var allControls = popup.GetVisualDescendants().ToList();
+            DebugTrace($"All controls in popup (including popup itself): {allControls.Count}");
+            
+            // List first few control types for debugging
+            for (int i = 0; i < Math.Min(10, allControls.Count); i++)
+            {
+                DebugTrace($"  Control[{i}]: {allControls[i].GetType().Name}");
+            }
+        }
+        else
+        {
+            DebugTrace("Popup not found when trying to attach handlers");
+            DebugTrace($"Parent MenuItem visual descendants count: {parentMenuItem.GetVisualDescendants().Count()}");
+            var allPopups = parentMenuItem.GetVisualDescendants().OfType<Popup>().ToList();
+            DebugTrace($"All Popups found: {allPopups.Count}");
+            for (int i = 0; i < allPopups.Count; i++)
+            {
+                var p = allPopups[i];
+                DebugTrace($"  Popup[{i}]: IsOpen={p.IsOpen}, IsVisible={p.IsVisible}");
+            }
+        }
+    }
+    
+    private void OnRecentProjectMenuItemKeyDown(object? sender, KeyEventArgs e)
+    {
+        DebugTrace($"OnRecentProjectMenuItemKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
+        DebugTrace($"  Sender: {sender?.GetType().Name}");
+        
+        if (e.Key == Key.Enter && sender is MenuItem menuItem)
+        {
+            DebugTrace($"Enter pressed on menu item");
+            DebugTrace($"  MenuItem Header: '{menuItem.Header}', Tag: '{menuItem.Tag}', TagType: {menuItem.Tag?.GetType().Name}");
+            
+            string? filePath = null;
+            
+            // If this menu item has a Tag, use it
+            if (menuItem.Tag is string tag && !string.IsNullOrEmpty(tag))
+            {
+                filePath = tag;
+                DebugTrace($"  Using Tag as filePath: {filePath}");
+            }
+            else
+            {
+                // Try to find a sibling menu item with a Tag
+                // The focused item might be a wrapper, find the actual menu item nearby
+                var parent = menuItem.GetVisualParent();
+                if (parent != null)
+                {
+                    DebugTrace($"  Searching parent for menu items with Tag");
+                    var siblings = parent.GetVisualChildren()
+                        .OfType<MenuItem>()
+                        .Where(mi => mi.Tag is string && !string.IsNullOrEmpty(mi.Tag.ToString()))
+                        .ToList();
+                    
+                    DebugTrace($"  Found {siblings.Count} sibling menu items with Tag");
+                    
+                    // Use the first one, or try to find one that matches by Header
+                    if (siblings.Count > 0)
+                    {
+                        // Try to match by finding the menu item that corresponds to this one
+                        // In Avalonia menus, the structure might be: wrapper MenuItem -> actual MenuItem
+                        var actualMenuItem = siblings.FirstOrDefault();
+                        if (actualMenuItem != null)
+                        {
+                            filePath = actualMenuItem.Tag as string;
+                            DebugTrace($"  Using sibling menu item Tag as filePath: {filePath}");
+                            // Use the actual menu item for the click event
+                            menuItem = actualMenuItem;
+                        }
+                    }
+                }
+                
+                // Fallback: find the focused menu item's corresponding item with Tag
+                if (string.IsNullOrEmpty(filePath))
+                {
+                    DebugTrace($"  Fallback: searching popup for focused menu item with Tag");
+                    var recentProjectsMenuItem = this.FindControl<MenuItem>("recentProjectsMenuItem");
+                    if (recentProjectsMenuItem != null)
+                    {
+                        var popup = recentProjectsMenuItem.GetVisualDescendants()
+                            .OfType<Popup>()
+                            .FirstOrDefault(p => p.IsOpen);
+                            
+                        if (popup?.Child != null)
+                        {
+                            var allMenuItems = popup.Child.GetVisualDescendants()
+                                .OfType<MenuItem>()
+                                .Where(mi => mi.Tag is string && !string.IsNullOrEmpty(mi.Tag.ToString()))
+                                .ToList();
+                                
+                            // Find the focused one, or use first
+                            var focusedWithTag = allMenuItems.FirstOrDefault(mi => mi.IsFocused);
+                            if (focusedWithTag == null && allMenuItems.Count > 0)
+                            {
+                                focusedWithTag = allMenuItems[0];
+                            }
+                            
+                            if (focusedWithTag != null)
+                            {
+                                filePath = focusedWithTag.Tag as string;
+                                DebugTrace($"  Found menu item with Tag via fallback: {filePath}");
+                                menuItem = focusedWithTag;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                DebugTrace($"Executing command with filePath: {filePath}");
+                e.Handled = true;
+                
+                // Trigger the Click event which will call OnRecentProjectClick
+                DebugTrace("Raising Click event on menu item");
+                var clickEventArgs = new RoutedEventArgs(MenuItem.ClickEvent);
+                menuItem.RaiseEvent(clickEventArgs);
+                DebugTrace("Click event raised");
+            }
+            else
+            {
+                DebugTrace("Could not determine filePath, cannot execute command");
+            }
+        }
+        else
+        {
+            if (e.Key != Key.Enter)
+                DebugTrace($"  Key is not Enter (Key={e.Key})");
+            if (sender is not MenuItem)
+                DebugTrace("  Sender is not MenuItem");
+        }
+    }
+    
+    private void OnRecentProjectClick(object? sender, RoutedEventArgs e)
+    {
+        DebugTrace($"OnRecentProjectClick called, sender: {sender?.GetType().Name}, RoutedEvent: {e.RoutedEvent?.Name}");
+        
+        if (sender is MenuItem menuItem)
+        {
+            DebugTrace($"MenuItem details - Header: '{menuItem.Header}', Tag: '{menuItem.Tag}', TagType: {menuItem.Tag?.GetType().Name}");
+            DebugTrace($"MenuItem state - IsEnabled: {menuItem.IsEnabled}, IsVisible: {menuItem.IsVisible}, IsFocused: {menuItem.IsFocused}");
+        }
+        
+        if (sender is MenuItem menuItem2 && menuItem2.Tag is string filePath && DataContext is MainWindowViewModel vm)
+        {
+            DebugTrace($"All conditions met, executing OpenRecentProjectCommand with filePath: {filePath}");
+            e.Handled = true;
+            DebugTrace("Closing all menus");
+            CloseAllMenus();
+            DebugTrace("Posting command execution to UI thread");
+            Dispatcher.UIThread.Post(() =>
+            {
+                DebugTrace($"Inside Dispatcher.Post, executing command: {filePath}");
+                vm.OpenRecentProjectCommand.Execute(filePath);
+                DebugTrace("Command execution completed");
+            }, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            DebugTrace("OnRecentProjectClick: Conditions not met");
+            if (sender is not MenuItem)
+                DebugTrace("  - sender is not MenuItem");
+            if (sender is MenuItem mi && !(mi.Tag is string))
+                DebugTrace($"  - Tag is not string (Tag: '{mi.Tag}', Type: {mi.Tag?.GetType().Name})");
+            if (DataContext is not MainWindowViewModel)
+                DebugTrace($"  - DataContext is not MainWindowViewModel (Type: {DataContext?.GetType().Name})");
         }
     }
 
