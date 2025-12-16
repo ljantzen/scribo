@@ -19,7 +19,7 @@ namespace Scribo.Views;
 public partial class MainWindow : Window
 {
     // Set to false to disable all debug tracing
-    private const bool ENABLE_DEBUG_TRACING = false;
+    private const bool ENABLE_DEBUG_TRACING = true;
     
     private void DebugTrace(string message)
     {
@@ -63,6 +63,52 @@ public partial class MainWindow : Window
         
         // Setup document link autocomplete
         SetupDocumentLinkAutocomplete();
+        
+        // Setup markdown block navigation
+        SetupMarkdownBlockNavigation();
+    }
+    
+    private void SetupMarkdownBlockNavigation()
+    {
+        DebugTrace("SetupMarkdownBlockNavigation called");
+        
+        // Try to find the ItemsControl and attach to its events
+        var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
+        if (itemsControl != null)
+        {
+            DebugTrace($"Found markdownItemsControl, attaching ContainerPrepared handler");
+            itemsControl.ContainerPrepared += OnMarkdownBlockContainerPrepared;
+            DebugTrace("ContainerPrepared handler attached");
+            
+            // Also try to attach handlers to existing items
+            Dispatcher.UIThread.Post(() =>
+            {
+                DebugTrace("Checking for existing MarkdownBlockControls");
+                AttachHandlersToExistingMarkdownBlocks();
+            }, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            DebugTrace("markdownItemsControl not found");
+        }
+    }
+    
+    private void AttachHandlersToExistingMarkdownBlocks()
+    {
+        var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
+        if (itemsControl != null)
+        {
+            DebugTrace($"Searching for MarkdownBlockControls in itemsControl");
+            var controls = itemsControl.GetVisualDescendants().OfType<MarkdownBlockControl>().ToList();
+            DebugTrace($"Found {controls.Count} MarkdownBlockControls");
+            
+            foreach (var control in controls)
+            {
+                DebugTrace($"  Attaching handler to MarkdownBlockControl: DataContext={control.DataContext?.GetType().Name}");
+                control.NavigateToDocumentRequested += OnNavigateToDocument;
+                DebugTrace($"  Handler attached");
+            }
+        }
     }
 
     private void SetupDocumentLinkAutocomplete()
@@ -408,19 +454,72 @@ public partial class MainWindow : Window
 
     private void OnMarkdownBlockContainerPrepared(object? sender, ContainerPreparedEventArgs e)
     {
-        // Find MarkdownBlockControl in the visual tree
-        var control = e.Container.GetVisualDescendants().OfType<MarkdownBlockControl>().FirstOrDefault();
+        DebugTrace($"OnMarkdownBlockContainerPrepared called");
+        DebugTrace($"  Sender: {sender?.GetType().Name}");
+        DebugTrace($"  Container: {e.Container?.GetType().Name}");
+        DebugTrace($"  Container DataContext: {e.Container?.DataContext?.GetType().Name}");
+        
+        // The container itself might be the MarkdownBlockControl, or it might contain it
+        MarkdownBlockControl? control = null;
+        
+        // First check if the container itself is a MarkdownBlockControl
+        if (e.Container is MarkdownBlockControl directControl)
+        {
+            DebugTrace($"  Container is directly MarkdownBlockControl");
+            control = directControl;
+        }
+        else
+        {
+            DebugTrace($"  Searching for MarkdownBlockControl in visual descendants");
+            // Find MarkdownBlockControl in the visual tree
+            control = e.Container.GetVisualDescendants().OfType<MarkdownBlockControl>().FirstOrDefault();
+        }
+        
+        DebugTrace($"  MarkdownBlockControl found: {control != null}");
+        
         if (control != null)
         {
+            DebugTrace($"  Control DataContext: {control.DataContext?.GetType().Name}");
+            DebugTrace($"  Attaching NavigateToDocumentRequested handler");
             control.NavigateToDocumentRequested += OnNavigateToDocument;
+            DebugTrace($"  Handler attached");
+        }
+        else
+        {
+            DebugTrace($"  MarkdownBlockControl not found in visual descendants");
+            var allDescendants = e.Container.GetVisualDescendants().ToList();
+            DebugTrace($"  Total visual descendants: {allDescendants.Count}");
+            for (int i = 0; i < Math.Min(20, allDescendants.Count); i++)
+            {
+                DebugTrace($"    Descendant[{i}]: {allDescendants[i].GetType().Name}, DataContext: {allDescendants[i].DataContext?.GetType().Name}");
+            }
+            
+            // Also check if container has children
+            if (e.Container is Control containerControl)
+            {
+                DebugTrace($"  Container has {containerControl.GetVisualChildren().Count()} visual children");
+                var children = containerControl.GetVisualChildren().ToList();
+                for (int i = 0; i < Math.Min(10, children.Count); i++)
+                {
+                    DebugTrace($"    Child[{i}]: {children[i].GetType().Name}");
+                }
+            }
         }
     }
 
     private void OnNavigateToDocument(string documentId)
     {
+        DebugTrace($"OnNavigateToDocument called with documentId: '{documentId}'");
+        
         if (DataContext is MainWindowViewModel vm)
         {
+            DebugTrace($"  DataContext is MainWindowViewModel, calling NavigateToDocument");
             vm.NavigateToDocument(documentId);
+            DebugTrace($"  NavigateToDocument called");
+        }
+        else
+        {
+            DebugTrace($"  DataContext is not MainWindowViewModel: {DataContext?.GetType().Name}");
         }
     }
 
