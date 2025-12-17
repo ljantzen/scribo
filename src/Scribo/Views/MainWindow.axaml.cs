@@ -70,26 +70,17 @@ public partial class MainWindow : Window
     
     private void SetupMarkdownBlockNavigation()
     {
-        DebugTrace("SetupMarkdownBlockNavigation called");
-        
         // Try to find the ItemsControl and attach to its events
         var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
         if (itemsControl != null)
         {
-            DebugTrace($"Found markdownItemsControl, attaching ContainerPrepared handler");
             itemsControl.ContainerPrepared += OnMarkdownBlockContainerPrepared;
-            DebugTrace("ContainerPrepared handler attached");
             
             // Also try to attach handlers to existing items
             Dispatcher.UIThread.Post(() =>
             {
-                DebugTrace("Checking for existing MarkdownBlockControls");
                 AttachHandlersToExistingMarkdownBlocks();
             }, DispatcherPriority.Loaded);
-        }
-        else
-        {
-            DebugTrace("markdownItemsControl not found");
         }
     }
     
@@ -98,15 +89,11 @@ public partial class MainWindow : Window
         var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
         if (itemsControl != null)
         {
-            DebugTrace($"Searching for MarkdownBlockControls in itemsControl");
             var controls = itemsControl.GetVisualDescendants().OfType<MarkdownBlockControl>().ToList();
-            DebugTrace($"Found {controls.Count} MarkdownBlockControls");
             
             foreach (var control in controls)
             {
-                DebugTrace($"  Attaching handler to MarkdownBlockControl: DataContext={control.DataContext?.GetType().Name}");
                 control.NavigateToDocumentRequested += OnNavigateToDocument;
-                DebugTrace($"  Handler attached");
             }
         }
     }
@@ -121,6 +108,12 @@ public partial class MainWindow : Window
         {
             // Handle keyboard events for autocomplete navigation
             textBox.KeyDown += OnEditorKeyDown;
+            
+            // Also attach to GotFocus to dynamically control AcceptsTab
+            textBox.GotFocus += (s, e) =>
+            {
+                UpdateAcceptsTabForAutocomplete(textBox);
+            };
             
             // Attach TextChanged handler (in addition to XAML binding to ensure it's called)
             textBox.TextChanged += OnEditorTextChanged;
@@ -139,6 +132,8 @@ public partial class MainWindow : Window
                         {
                             UpdateAutocompletePopupPosition();
                         }
+                        // Update AcceptsTab when autocomplete visibility changes
+                        UpdateAcceptsTabForAutocomplete(textBox);
                     }
                 };
             }
@@ -169,6 +164,52 @@ public partial class MainWindow : Window
             InsertSelectedDocumentLink(textBox, vm, document);
         }
     }
+    
+    private void UpdateAcceptsTabForAutocomplete(TextBox textBox)
+    {
+        if (textBox == null || DataContext is not MainWindowViewModel vm)
+            return;
+            
+        var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
+        
+        // Check if we're inside a [[...]] block
+        var text = textBox.Text ?? string.Empty;
+        var caretIndex = textBox.CaretIndex;
+        bool shouldDisableTab = false;
+        
+        if (caretIndex >= 2 && autocompleteVm.IsVisible)
+        {
+            var searchStart = Math.Max(0, caretIndex - 200);
+            var textBeforeCaret = text.Substring(searchStart, caretIndex - searchStart);
+            var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+            
+            if (lastBracketIndex >= 0)
+            {
+                var absoluteBracketIndex = searchStart + lastBracketIndex;
+                var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
+                var closingBracketIndex = textAfterBracket.IndexOf("]]");
+                var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
+                
+                // If we're inside [[...]] and autocomplete is visible, disable Tab insertion
+                if ((closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2) && 
+                    caretOffsetFromBracketStart >= 2)
+                {
+                    shouldDisableTab = true;
+                }
+            }
+        }
+        
+        // Temporarily disable AcceptsTab when autocomplete is active
+        // This allows our KeyDown handler to catch Tab
+        if (shouldDisableTab && textBox.AcceptsTab)
+        {
+            textBox.AcceptsTab = false;
+        }
+        else if (!shouldDisableTab && !textBox.AcceptsTab)
+        {
+            textBox.AcceptsTab = true;
+        }
+    }
 
     private void OnEditorTextChanged(object? sender, TextChangedEventArgs e)
     {
@@ -193,6 +234,9 @@ public partial class MainWindow : Window
         // Use TextBox.Text directly as it's already updated when this event fires
         var text = textBox.Text ?? string.Empty;
         var caretIndex = textBox.CaretIndex;
+        
+        // Update AcceptsTab based on autocomplete state
+        UpdateAcceptsTabForAutocomplete(textBox);
         
         // Ensure we have a valid caret position
         if (caretIndex < 0 || caretIndex > text.Length)
@@ -283,7 +327,51 @@ public partial class MainWindow : Window
 
         var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
         
-        // Only handle autocomplete keys if popup is visible
+        // Handle Tab key even when popup is not visible, to check if we're in a [[...]] block
+        // This allows Tab to complete autocomplete if popup should be visible
+        if (e.Key == Key.Tab)
+        {
+            // Check if we're inside a [[...]] block that should show autocomplete
+            var text = textBox.Text ?? string.Empty;
+            var caretIndex = textBox.CaretIndex;
+            
+            if (caretIndex >= 2)
+            {
+                var searchStart = Math.Max(0, caretIndex - 200);
+                var textBeforeCaret = text.Substring(searchStart, caretIndex - searchStart);
+                var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+                
+                if (lastBracketIndex >= 0)
+                {
+                    var absoluteBracketIndex = searchStart + lastBracketIndex;
+                    var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
+                    var closingBracketIndex = textAfterBracket.IndexOf("]]");
+                    var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
+                    
+                    // If we're inside [[...]] and no closing ]] before caret, show/use autocomplete
+                    if ((closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2) && 
+                        caretOffsetFromBracketStart >= 2)
+                    {
+                        // If popup is visible, complete the selection
+                        if (autocompleteVm.IsVisible)
+                        {
+                            e.Handled = true;
+                            InsertSelectedDocumentLink(textBox, vm);
+                            return;
+                        }
+                        // If popup should be visible but isn't, try to complete anyway
+                        else if (autocompleteVm.Suggestions.Count > 0)
+                        {
+                            e.Handled = true;
+                            InsertSelectedDocumentLink(textBox, vm);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Only handle other autocomplete keys if popup is visible
         if (!autocompleteVm.IsVisible)
             return;
 
@@ -300,6 +388,10 @@ public partial class MainWindow : Window
                 break;
                 
             case Key.Enter:
+                e.Handled = true;
+                InsertSelectedDocumentLink(textBox, vm);
+                break;
+                
             case Key.Tab:
                 e.Handled = true;
                 InsertSelectedDocumentLink(textBox, vm);
@@ -454,78 +546,32 @@ public partial class MainWindow : Window
 
     private void OnMarkdownBlockContainerPrepared(object? sender, ContainerPreparedEventArgs e)
     {
-        DebugTrace($"OnMarkdownBlockContainerPrepared called");
-        DebugTrace($"  Sender: {sender?.GetType().Name}");
-        DebugTrace($"  Container: {e.Container?.GetType().Name}");
-        DebugTrace($"  Container DataContext: {e.Container?.DataContext?.GetType().Name}");
-        
         // The container itself might be the MarkdownBlockControl, or it might contain it
         MarkdownBlockControl? control = null;
         
         // First check if the container itself is a MarkdownBlockControl
         if (e.Container is MarkdownBlockControl directControl)
         {
-            DebugTrace($"  Container is directly MarkdownBlockControl");
             control = directControl;
         }
         else
         {
-            DebugTrace($"  Searching for MarkdownBlockControl in visual descendants");
             // Find MarkdownBlockControl in the visual tree
             control = e.Container.GetVisualDescendants().OfType<MarkdownBlockControl>().FirstOrDefault();
         }
         
-        DebugTrace($"  MarkdownBlockControl found: {control != null}");
-        
         if (control != null)
         {
-            DebugTrace($"  Control DataContext: {control.DataContext?.GetType().Name}");
-            DebugTrace($"  Attaching NavigateToDocumentRequested handler");
             control.NavigateToDocumentRequested += OnNavigateToDocument;
-            DebugTrace($"  Handler attached");
-        }
-        else
-        {
-            DebugTrace($"  MarkdownBlockControl not found in visual descendants");
-            var allDescendants = e.Container.GetVisualDescendants().ToList();
-            DebugTrace($"  Total visual descendants: {allDescendants.Count}");
-            for (int i = 0; i < Math.Min(20, allDescendants.Count); i++)
-            {
-                DebugTrace($"    Descendant[{i}]: {allDescendants[i].GetType().Name}, DataContext: {allDescendants[i].DataContext?.GetType().Name}");
-            }
-            
-            // Also check if container has children
-            if (e.Container is Control containerControl)
-            {
-                DebugTrace($"  Container has {containerControl.GetVisualChildren().Count()} visual children");
-                var children = containerControl.GetVisualChildren().ToList();
-                for (int i = 0; i < Math.Min(10, children.Count); i++)
-                {
-                    DebugTrace($"    Child[{i}]: {children[i].GetType().Name}");
-                }
-            }
         }
     }
 
     public void OnNavigateToDocument(string documentId)
     {
-        DebugTrace($"OnNavigateToDocument called with documentId: '{documentId}'");
-        DebugTrace($"  Call stack: {Environment.StackTrace}");
-        
         if (DataContext is MainWindowViewModel vm)
         {
-            DebugTrace($"  DataContext is MainWindowViewModel");
-            DebugTrace($"  Calling vm.NavigateToDocument('{documentId}')");
             vm.NavigateToDocument(documentId);
-            DebugTrace($"  vm.NavigateToDocument returned");
         }
-        else
-        {
-            DebugTrace($"  DataContext is not MainWindowViewModel: {DataContext?.GetType().Name}");
-            DebugTrace($"  DataContext is null: {DataContext == null}");
-        }
-        
-        DebugTrace("  OnNavigateToDocument completed");
     }
 
     private void OnEditorTextBoxGotFocus(object? sender, Avalonia.Input.GotFocusEventArgs e)
@@ -705,25 +751,55 @@ public partial class MainWindow : Window
     
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        DebugTrace($"OnWindowKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
+        // Handle Tab key for autocomplete completion when TextBox has focus
+        // This catches Tab before TextBox consumes it (when AcceptsTab=True)
+        if (e.Key == Key.Tab && !e.Handled)
+        {
+            var textBox = this.FindControl<TextBox>("sourceTextBox");
+            if (textBox != null && textBox.IsFocused && DataContext is MainWindowViewModel viewModelForTab)
+            {
+                if (viewModelForTab.IsSourceMode)
+                {
+                    var autocompleteVm = viewModelForTab.DocumentLinkAutocompleteViewModel;
+                    
+                    // Check if we're inside a [[...]] block
+                    var text = textBox.Text ?? string.Empty;
+                    var caretIndex = textBox.CaretIndex;
+                    
+                    if (caretIndex >= 2)
+                    {
+                        var searchStart = Math.Max(0, caretIndex - 200);
+                        var textBeforeCaret = text.Substring(searchStart, caretIndex - searchStart);
+                        var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
+                        
+                        if (lastBracketIndex >= 0)
+                        {
+                            var absoluteBracketIndex = searchStart + lastBracketIndex;
+                            var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
+                            var closingBracketIndex = textAfterBracket.IndexOf("]]");
+                            var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
+                            
+                            // If we're inside [[...]] and autocomplete is active, complete it
+                            if ((closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2) && 
+                                caretOffsetFromBracketStart >= 2)
+                            {
+                                if (autocompleteVm.IsVisible || autocompleteVm.Suggestions.Count > 0)
+                                {
+                                    e.Handled = true;
+                                    InsertSelectedDocumentLink(textBox, viewModelForTab);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         // Handle Enter key when Recent Projects submenu is open (check this FIRST)
         if (e.Key == Key.Enter && !e.Handled && DataContext is MainWindowViewModel viewModel)
         {
-            DebugTrace("Enter key pressed, checking Recent Projects menu");
             var recentProjectsMenuItem = this.FindControl<MenuItem>("recentProjectsMenuItem");
-            DebugTrace($"recentProjectsMenuItem found: {recentProjectsMenuItem != null}");
-            
-            if (recentProjectsMenuItem != null)
-            {
-                DebugTrace($"IsSubMenuOpen: {recentProjectsMenuItem.IsSubMenuOpen}");
-                DebugTrace($"RecentProjects count: {viewModel.RecentProjects.Count}");
-                
-                if (viewModel.RecentProjects.Count > 0)
-                {
-                    DebugTrace($"First RecentProject: {viewModel.RecentProjects[0].ProjectName}, FilePath: {viewModel.RecentProjects[0].FilePath}");
-                }
-            }
             
             if (recentProjectsMenuItem != null && recentProjectsMenuItem.IsSubMenuOpen)
             {
@@ -735,12 +811,6 @@ public partial class MainWindow : Window
                     .OfType<Popup>()
                     .FirstOrDefault(p => p.IsOpen);
                     
-                DebugTrace($"Popup found: {popup != null}");
-                if (popup != null)
-                {
-                    DebugTrace($"Popup IsOpen: {popup.IsOpen}, IsVisible: {popup.IsVisible}");
-                }
-                    
                 if (popup != null)
                 {
                     // Find all menu items in the popup
@@ -749,44 +819,24 @@ public partial class MainWindow : Window
                         .Where(mi => mi.Tag is string)
                         .ToList();
                     
-                    DebugTrace($"Menu items found in popup: {menuItems.Count}");
-                    
-                    for (int i = 0; i < menuItems.Count; i++)
-                    {
-                        var mi = menuItems[i];
-                        DebugTrace($"  MenuItem[{i}]: Header='{mi.Header}', Tag='{mi.Tag}', IsFocused={mi.IsFocused}, IsPointerOver={mi.IsPointerOver}, IsEnabled={mi.IsEnabled}");
-                    }
-                    
                     // Try to find focused item
                     selectedItem = menuItems.FirstOrDefault(mi => mi.IsFocused);
-                    DebugTrace($"Focused item found: {selectedItem != null}");
-                    if (selectedItem != null)
-                    {
-                        DebugTrace($"  Focused item: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
-                    }
                     
                     // If not focused, try pointer over
                     if (selectedItem == null)
                     {
                         selectedItem = menuItems.FirstOrDefault(mi => mi.IsPointerOver);
-                        DebugTrace($"Pointer-over item found: {selectedItem != null}");
-                        if (selectedItem != null)
-                        {
-                            DebugTrace($"  Pointer-over item: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
-                        }
                     }
                     
                     // If still not found, use first item
                     if (selectedItem == null && menuItems.Count > 0)
                     {
                         selectedItem = menuItems[0];
-                        DebugTrace($"Using first menu item as fallback: Header='{selectedItem.Header}', Tag='{selectedItem.Tag}'");
                     }
                     
                     if (selectedItem != null && selectedItem.Tag is string path)
                     {
                         filePath = path;
-                        DebugTrace($"FilePath from menu item: {filePath}");
                     }
                 }
                 
@@ -794,42 +844,29 @@ public partial class MainWindow : Window
                 if (string.IsNullOrEmpty(filePath) && viewModel.RecentProjects.Count > 0)
                 {
                     filePath = viewModel.RecentProjects[0].FilePath;
-                    DebugTrace($"Using fallback filePath from ViewModel: {filePath}");
                 }
                 
                 if (!string.IsNullOrEmpty(filePath))
                 {
-                    DebugTrace($"Executing command with filePath: {filePath}");
                     e.Handled = true;
                     
                     if (selectedItem != null)
                     {
-                        DebugTrace($"Triggering Click event on menu item: Header='{selectedItem.Header}'");
                         // Trigger the Click event on the menu item (this will call OnRecentProjectClick)
                         var clickEventArgs = new RoutedEventArgs(MenuItem.ClickEvent);
                         selectedItem.RaiseEvent(clickEventArgs);
                     }
                     else
                     {
-                        DebugTrace("Executing command directly (no menu item found)");
                         // Fallback: execute command directly
                         CloseAllMenus();
                         Dispatcher.UIThread.Post(() =>
                         {
-                            DebugTrace($"Executing OpenRecentProjectCommand with: {filePath}");
                             viewModel.OpenRecentProjectCommand.Execute(filePath);
                         }, DispatcherPriority.Loaded);
                     }
                     return;
                 }
-                else
-                {
-                    DebugTrace("No filePath found, cannot execute command");
-                }
-            }
-            else
-            {
-                DebugTrace("Recent Projects submenu is not open");
             }
         }
         
@@ -1220,43 +1257,34 @@ public partial class MainWindow : Window
     
     private void OnRecentProjectsSubmenuOpened(object? sender, RoutedEventArgs e)
     {
-        DebugTrace($"OnRecentProjectsSubmenuOpened called, sender: {sender?.GetType().Name}");
         
         // Attach KeyDown handlers to menu items when submenu opens
         if (sender is MenuItem parentMenuItem)
         {
-            DebugTrace($"Parent MenuItem: Header='{parentMenuItem.Header}', IsSubMenuOpen={parentMenuItem.IsSubMenuOpen}");
             Dispatcher.UIThread.Post(() =>
             {
-                DebugTrace("Attaching handlers to menu items (dispatched)");
                 AttachKeyHandlersToRecentProjectItems(parentMenuItem);
             }, DispatcherPriority.Loaded);
         }
         else
         {
-            DebugTrace("Sender is not MenuItem");
         }
     }
     
     private void AttachKeyHandlersToRecentProjectItems(MenuItem parentMenuItem)
     {
-        DebugTrace("AttachKeyHandlersToRecentProjectItems called");
         
         // First, try to get items from the Items collection
-        DebugTrace($"Parent MenuItem Items count: {parentMenuItem.Items?.Count ?? 0}");
         if (parentMenuItem.Items != null)
         {
             for (int i = 0; i < parentMenuItem.Items.Count; i++)
             {
                 var item = parentMenuItem.Items[i];
-                DebugTrace($"  Items[{i}]: Type={item?.GetType().Name}, Value={item}");
                 
                 if (item is MenuItem menuItem)
                 {
-                    DebugTrace($"    MenuItem Header: '{menuItem.Header}', Tag: '{menuItem.Tag}'");
                     menuItem.KeyDown -= OnRecentProjectMenuItemKeyDown;
                     menuItem.KeyDown += OnRecentProjectMenuItemKeyDown;
-                    DebugTrace($"    Attached KeyDown handler to Items[{i}]");
                 }
             }
         }
@@ -1264,7 +1292,6 @@ public partial class MainWindow : Window
         // Also try to find via visual tree with a delay
         Dispatcher.UIThread.Post(() =>
         {
-            DebugTrace("Trying visual tree search after delay");
             FindAndAttachHandlersViaVisualTree(parentMenuItem);
         }, DispatcherPriority.Loaded);
     }
@@ -1276,29 +1303,21 @@ public partial class MainWindow : Window
             .OfType<Popup>()
             .FirstOrDefault(p => p.IsOpen);
             
-        DebugTrace($"Popup search result: {popup != null}");
         
         if (popup != null)
         {
-            DebugTrace($"Popup details - IsOpen: {popup.IsOpen}, IsVisible: {popup.IsVisible}");
-            DebugTrace($"Popup Child type: {popup.Child?.GetType().Name}");
             
             // The popup's child is likely a Panel containing the menu items
             if (popup.Child != null)
             {
-                DebugTrace($"Searching Popup.Child for MenuItems");
                 var menuItems = popup.Child.GetVisualDescendants()
                     .OfType<MenuItem>()
                     .ToList();
                     
-                DebugTrace($"Found {menuItems.Count} MenuItem objects in Popup.Child");
                 
                 for (int i = 0; i < menuItems.Count; i++)
                 {
                     var menuItem = menuItems[i];
-                    DebugTrace($"  MenuItem[{i}]: Header='{menuItem.Header}', Tag='{menuItem.Tag}', TagType={menuItem.Tag?.GetType().Name}");
-                    DebugTrace($"    Parent: {menuItem.GetVisualParent()?.GetType().Name}");
-                    DebugTrace($"    IsFocused: {menuItem.IsFocused}, IsPointerOver: {menuItem.IsPointerOver}");
                 }
                 
                 // Attach handlers to ALL menu items, not just those with Tags
@@ -1306,53 +1325,40 @@ public partial class MainWindow : Window
                 for (int i = 0; i < menuItems.Count; i++)
                 {
                     var menuItem = menuItems[i];
-                    DebugTrace($"  Attaching handler to MenuItem[{i}]: Header='{menuItem.Header}', Tag='{menuItem.Tag}'");
                     
                     // Remove existing handler to avoid duplicates
                     menuItem.KeyDown -= OnRecentProjectMenuItemKeyDown;
                     menuItem.KeyDown += OnRecentProjectMenuItemKeyDown;
-                    DebugTrace($"    Attached KeyDown handler to MenuItem[{i}]");
                 }
                 
                 // Also store reference to menu items with Tags for lookup
                 var menuItemsWithTag = menuItems.Where(mi => mi.Tag is string && !string.IsNullOrEmpty(mi.Tag.ToString())).ToList();
-                DebugTrace($"Menu items with Tag: {menuItemsWithTag.Count}");
                 
             }
             
             // Try to find all controls in the popup
             var allControls = popup.GetVisualDescendants().ToList();
-            DebugTrace($"All controls in popup (including popup itself): {allControls.Count}");
             
             // List first few control types for debugging
             for (int i = 0; i < Math.Min(10, allControls.Count); i++)
             {
-                DebugTrace($"  Control[{i}]: {allControls[i].GetType().Name}");
             }
         }
         else
         {
-            DebugTrace("Popup not found when trying to attach handlers");
-            DebugTrace($"Parent MenuItem visual descendants count: {parentMenuItem.GetVisualDescendants().Count()}");
             var allPopups = parentMenuItem.GetVisualDescendants().OfType<Popup>().ToList();
-            DebugTrace($"All Popups found: {allPopups.Count}");
             for (int i = 0; i < allPopups.Count; i++)
             {
                 var p = allPopups[i];
-                DebugTrace($"  Popup[{i}]: IsOpen={p.IsOpen}, IsVisible={p.IsVisible}");
             }
         }
     }
     
     private void OnRecentProjectMenuItemKeyDown(object? sender, KeyEventArgs e)
     {
-        DebugTrace($"OnRecentProjectMenuItemKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
-        DebugTrace($"  Sender: {sender?.GetType().Name}");
         
         if (e.Key == Key.Enter && sender is MenuItem menuItem)
         {
-            DebugTrace($"Enter pressed on menu item");
-            DebugTrace($"  MenuItem Header: '{menuItem.Header}', Tag: '{menuItem.Tag}', TagType: {menuItem.Tag?.GetType().Name}");
             
             string? filePath = null;
             
@@ -1360,7 +1366,6 @@ public partial class MainWindow : Window
             if (menuItem.Tag is string tag && !string.IsNullOrEmpty(tag))
             {
                 filePath = tag;
-                DebugTrace($"  Using Tag as filePath: {filePath}");
             }
             else
             {
@@ -1369,13 +1374,11 @@ public partial class MainWindow : Window
                 var parent = menuItem.GetVisualParent();
                 if (parent != null)
                 {
-                    DebugTrace($"  Searching parent for menu items with Tag");
                     var siblings = parent.GetVisualChildren()
                         .OfType<MenuItem>()
                         .Where(mi => mi.Tag is string && !string.IsNullOrEmpty(mi.Tag.ToString()))
                         .ToList();
                     
-                    DebugTrace($"  Found {siblings.Count} sibling menu items with Tag");
                     
                     // Use the first one, or try to find one that matches by Header
                     if (siblings.Count > 0)
@@ -1386,7 +1389,6 @@ public partial class MainWindow : Window
                         if (actualMenuItem != null)
                         {
                             filePath = actualMenuItem.Tag as string;
-                            DebugTrace($"  Using sibling menu item Tag as filePath: {filePath}");
                             // Use the actual menu item for the click event
                             menuItem = actualMenuItem;
                         }
@@ -1396,7 +1398,6 @@ public partial class MainWindow : Window
                 // Fallback: find the focused menu item's corresponding item with Tag
                 if (string.IsNullOrEmpty(filePath))
                 {
-                    DebugTrace($"  Fallback: searching popup for focused menu item with Tag");
                     var recentProjectsMenuItem = this.FindControl<MenuItem>("recentProjectsMenuItem");
                     if (recentProjectsMenuItem != null)
                     {
@@ -1421,7 +1422,6 @@ public partial class MainWindow : Window
                             if (focusedWithTag != null)
                             {
                                 filePath = focusedWithTag.Tag as string;
-                                DebugTrace($"  Found menu item with Tag via fallback: {filePath}");
                                 menuItem = focusedWithTag;
                             }
                         }
@@ -1431,62 +1431,25 @@ public partial class MainWindow : Window
             
             if (!string.IsNullOrEmpty(filePath))
             {
-                DebugTrace($"Executing command with filePath: {filePath}");
                 e.Handled = true;
                 
                 // Trigger the Click event which will call OnRecentProjectClick
-                DebugTrace("Raising Click event on menu item");
                 var clickEventArgs = new RoutedEventArgs(MenuItem.ClickEvent);
                 menuItem.RaiseEvent(clickEventArgs);
-                DebugTrace("Click event raised");
             }
-            else
-            {
-                DebugTrace("Could not determine filePath, cannot execute command");
-            }
-        }
-        else
-        {
-            if (e.Key != Key.Enter)
-                DebugTrace($"  Key is not Enter (Key={e.Key})");
-            if (sender is not MenuItem)
-                DebugTrace("  Sender is not MenuItem");
         }
     }
     
     private void OnRecentProjectClick(object? sender, RoutedEventArgs e)
     {
-        DebugTrace($"OnRecentProjectClick called, sender: {sender?.GetType().Name}, RoutedEvent: {e.RoutedEvent?.Name}");
-        
-        if (sender is MenuItem menuItem)
-        {
-            DebugTrace($"MenuItem details - Header: '{menuItem.Header}', Tag: '{menuItem.Tag}', TagType: {menuItem.Tag?.GetType().Name}");
-            DebugTrace($"MenuItem state - IsEnabled: {menuItem.IsEnabled}, IsVisible: {menuItem.IsVisible}, IsFocused: {menuItem.IsFocused}");
-        }
-        
         if (sender is MenuItem menuItem2 && menuItem2.Tag is string filePath && DataContext is MainWindowViewModel vm)
         {
-            DebugTrace($"All conditions met, executing OpenRecentProjectCommand with filePath: {filePath}");
             e.Handled = true;
-            DebugTrace("Closing all menus");
             CloseAllMenus();
-            DebugTrace("Posting command execution to UI thread");
             Dispatcher.UIThread.Post(() =>
             {
-                DebugTrace($"Inside Dispatcher.Post, executing command: {filePath}");
                 vm.OpenRecentProjectCommand.Execute(filePath);
-                DebugTrace("Command execution completed");
             }, DispatcherPriority.Loaded);
-        }
-        else
-        {
-            DebugTrace("OnRecentProjectClick: Conditions not met");
-            if (sender is not MenuItem)
-                DebugTrace("  - sender is not MenuItem");
-            if (sender is MenuItem mi && !(mi.Tag is string))
-                DebugTrace($"  - Tag is not string (Tag: '{mi.Tag}', Type: {mi.Tag?.GetType().Name})");
-            if (DataContext is not MainWindowViewModel)
-                DebugTrace($"  - DataContext is not MainWindowViewModel (Type: {DataContext?.GetType().Name})");
         }
     }
 
