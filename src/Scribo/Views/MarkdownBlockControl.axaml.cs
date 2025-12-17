@@ -3,7 +3,9 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Scribo.Models;
 
 namespace Scribo.Views;
@@ -26,6 +28,52 @@ public partial class MarkdownBlockControl : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         DebugTrace("MarkdownBlockControl constructor called");
+        
+        // Try to attach handler when control is loaded
+        Loaded += OnMarkdownBlockControlLoaded;
+    }
+    
+    private void OnMarkdownBlockControlLoaded(object? sender, RoutedEventArgs e)
+    {
+        DebugTrace("OnMarkdownBlockControlLoaded called");
+        TryAttachNavigationHandler();
+    }
+    
+    private void TryAttachNavigationHandler()
+    {
+        DebugTrace("TryAttachNavigationHandler called");
+        
+        // Find the MainWindow in the visual tree
+        var window = this.GetVisualRoot() as Window;
+        DebugTrace($"  Visual root Window found: {window != null}, Type: {window?.GetType().Name}");
+        
+        if (window is MainWindow mainWindow)
+        {
+            DebugTrace("  Found MainWindow, attaching handler");
+            NavigateToDocumentRequested += mainWindow.OnNavigateToDocument;
+            DebugTrace("  Handler attached from MarkdownBlockControl");
+        }
+        else
+        {
+            DebugTrace($"  Window is not MainWindow: {window?.GetType().Name}");
+            
+            // Try alternative: find via visual tree traversal
+            var parent = this.GetVisualParent();
+            int depth = 0;
+            while (parent != null && depth < 10)
+            {
+                DebugTrace($"  Parent[{depth}]: {parent.GetType().Name}");
+                if (parent is MainWindow mw)
+                {
+                    DebugTrace("  Found MainWindow via parent traversal");
+                    NavigateToDocumentRequested += mw.OnNavigateToDocument;
+                    DebugTrace("  Handler attached");
+                    break;
+                }
+                parent = parent.GetVisualParent();
+                depth++;
+            }
+        }
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -156,8 +204,9 @@ public partial class MarkdownBlockControl : UserControl
     {
         DebugTrace($"OnTextBlockPointerPressed called");
         DebugTrace($"  Sender: {sender?.GetType().Name}");
-        DebugTrace($"  Pointer position: {e.GetPosition(this)}");
+        DebugTrace($"  Pointer position (relative to control): {e.GetPosition(this)}");
         DebugTrace($"  Pointer properties: IsLeftButtonPressed={e.GetCurrentPoint(this).Properties.IsLeftButtonPressed}");
+        DebugTrace($"  Event handled: {e.Handled}");
         
         if (DataContext is not MarkdownBlock block)
         {
@@ -166,11 +215,13 @@ public partial class MarkdownBlockControl : UserControl
         }
         
         DebugTrace($"  Block Type: {block.Type}");
+        DebugTrace($"  Block Content: '{block.Content}'");
+        DebugTrace($"  Block DisplayText: '{block.DisplayText}'");
         DebugTrace($"  Block Links: {block.Links?.Count ?? 0}");
         
         if (block.Links == null || block.Links.Count == 0)
         {
-            DebugTrace("  No links in block");
+            DebugTrace("  No links in block - returning early");
             return;
         }
 
@@ -189,6 +240,8 @@ public partial class MarkdownBlockControl : UserControl
         {
             var clickPosition = e.GetPosition(textBlock);
             DebugTrace($"  Click position relative to textBlock: {clickPosition}");
+            DebugTrace($"  TextBlock bounds: {textBlock.Bounds}");
+            DebugTrace($"  TextBlock text length: {textBlock.Text?.Length ?? 0}");
             
             // Try to get the character index at the click position
             // Note: This is approximate and may not work perfectly with all fonts/layouts
@@ -196,11 +249,30 @@ public partial class MarkdownBlockControl : UserControl
             {
                 var hitTestResult = textBlock.InputHitTest(clickPosition);
                 DebugTrace($"  Hit test result: {hitTestResult?.GetType().Name}");
+                
+                // Try to find which inline was clicked
+                if (textBlock.Inlines != null)
+                {
+                    DebugTrace($"  TextBlock has {textBlock.Inlines.Count} inlines");
+                    for (int i = 0; i < textBlock.Inlines.Count; i++)
+                    {
+                        var inline = textBlock.Inlines[i];
+                        DebugTrace($"    Inline[{i}]: Type={inline.GetType().Name}");
+                        if (inline is Run run)
+                        {
+                            DebugTrace($"      Run text: '{run.Text}', Foreground={run.Foreground}");
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
-                DebugTrace($"  Hit test exception: {ex.Message}");
+                DebugTrace($"  Hit test exception: {ex.Message}, StackTrace: {ex.StackTrace}");
             }
+        }
+        else
+        {
+            DebugTrace("  contentTextBlock is null!");
         }
 
         // Find the first resolved link and navigate to it
@@ -216,10 +288,22 @@ public partial class MarkdownBlockControl : UserControl
         
         if (resolvedLink != null && !string.IsNullOrEmpty(resolvedLink.TargetDocumentId))
         {
-            DebugTrace($"  Navigating to document: TargetDocumentId='{resolvedLink.TargetDocumentId}'");
-            DebugTrace($"  NavigateToDocumentRequested handler count: {(NavigateToDocumentRequested?.GetInvocationList().Length ?? 0)}");
-            NavigateToDocumentRequested?.Invoke(resolvedLink.TargetDocumentId);
-            DebugTrace("  NavigateToDocumentRequested invoked");
+            DebugTrace($"  Selected resolved link: TargetDocumentId='{resolvedLink.TargetDocumentId}'");
+            DebugTrace($"  Checking NavigateToDocumentRequested event");
+            
+            // Check if handler is attached (can't directly check invocation list from outside)
+            DebugTrace($"  About to invoke NavigateToDocumentRequested with: '{resolvedLink.TargetDocumentId}'");
+            
+            try
+            {
+                NavigateToDocumentRequested?.Invoke(resolvedLink.TargetDocumentId);
+                DebugTrace("  NavigateToDocumentRequested invoked successfully");
+            }
+            catch (Exception ex)
+            {
+                DebugTrace($"  Exception invoking NavigateToDocumentRequested: {ex.Message}");
+                DebugTrace($"  StackTrace: {ex.StackTrace}");
+            }
         }
         else
         {
@@ -229,6 +313,8 @@ public partial class MarkdownBlockControl : UserControl
             else
                 DebugTrace($"    resolvedLink.TargetDocumentId is empty: '{resolvedLink.TargetDocumentId}'");
         }
+        
+        DebugTrace("  OnTextBlockPointerPressed completed");
     }
 
     public event Action<string>? NavigateToDocumentRequested;

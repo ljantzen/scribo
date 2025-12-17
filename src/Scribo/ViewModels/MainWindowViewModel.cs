@@ -1527,26 +1527,26 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private ProjectTreeItemViewModel? FindTreeItemByDocument(ProjectTreeItemViewModel item, Document document)
     {
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] FindTreeItemByDocument: item.Name='{item.Name}', item.Document?.Id='{item.Document?.Id}', document.Id='{document.Id}', document.Title='{document.Title}'");
+        Console.WriteLine($"[MainWindowViewModel] FindTreeItemByDocument: item.Name='{item.Name}', item.Document?.Id='{item.Document?.Id}', document.Id='{document.Id}', document.Title='{document.Title}'");
         
         if (item.Document?.Id == document.Id)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Match found! Returning item: Name='{item.Name}'");
+            Console.WriteLine($"[MainWindowViewModel]   Match found! Returning item: Name='{item.Name}'");
             return item;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Checking {item.Children.Count} children");
+        Console.WriteLine($"[MainWindowViewModel]   Checking {item.Children.Count} children");
         foreach (var child in item.Children)
         {
             var found = FindTreeItemByDocument(child, document);
             if (found != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Found in child, returning");
+                Console.WriteLine($"[MainWindowViewModel]   Found in child, returning");
                 return found;
             }
         }
 
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Not found in this branch");
+        Console.WriteLine($"[MainWindowViewModel]   Not found in this branch");
         return null;
     }
 
@@ -2915,56 +2915,56 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void NavigateToDocument(string documentId)
     {
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] NavigateToDocument called with documentId: '{documentId}'");
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   CurrentProject is null: {_currentProject == null}");
+        Console.WriteLine($"[MainWindowViewModel] NavigateToDocument called with documentId: '{documentId}'");
+        Console.WriteLine($"[MainWindowViewModel]   CurrentProject is null: {_currentProject == null}");
         
         if (_currentProject == null)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Returning early: CurrentProject is null");
+            Console.WriteLine($"[MainWindowViewModel]   Returning early: CurrentProject is null");
             return;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   CurrentProject.Documents count: {_currentProject.Documents.Count}");
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Searching for document with Id: '{documentId}'");
+        Console.WriteLine($"[MainWindowViewModel]   CurrentProject.Documents count: {_currentProject.Documents.Count}");
+        Console.WriteLine($"[MainWindowViewModel]   Searching for document with Id: '{documentId}'");
         
         var document = _currentProject.Documents.FirstOrDefault(d => d.Id == documentId);
         
         if (document == null)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Document not found with Id: '{documentId}'");
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Available document IDs:");
+            Console.WriteLine($"[MainWindowViewModel]   Document not found with Id: '{documentId}'");
+            Console.WriteLine($"[MainWindowViewModel]   Available document IDs:");
             foreach (var doc in _currentProject.Documents.Take(10))
             {
-                System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]     - Id: '{doc.Id}', Title: '{doc.Title}'");
+                Console.WriteLine($"[MainWindowViewModel]     - Id: '{doc.Id}', Title: '{doc.Title}'");
             }
             return;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Found document: Title='{document.Title}', Id='{document.Id}'");
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   ProjectTreeItems count: {ProjectTreeItems.Count}");
+        Console.WriteLine($"[MainWindowViewModel]   Found document: Title='{document.Title}', Id='{document.Id}'");
+        Console.WriteLine($"[MainWindowViewModel]   ProjectTreeItems count: {ProjectTreeItems.Count}");
 
         // Find the corresponding tree item
         ProjectTreeItemViewModel? targetItem = null;
         foreach (var rootItem in ProjectTreeItems)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Searching in root item: Name='{rootItem.Name}'");
+            Console.WriteLine($"[MainWindowViewModel]   Searching in root item: Name='{rootItem.Name}'");
             targetItem = FindTreeItemByDocument(rootItem, document);
             if (targetItem != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Found target item: Name='{targetItem.Name}'");
+                Console.WriteLine($"[MainWindowViewModel]   Found target item: Name='{targetItem.Name}'");
                 break;
             }
         }
 
         if (targetItem != null)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Setting SelectedProjectItem to target item");
+            Console.WriteLine($"[MainWindowViewModel]   Setting SelectedProjectItem to target item");
             SelectedProjectItem = targetItem;
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   SelectedProjectItem set, current value: Name='{SelectedProjectItem?.Name}'");
+            Console.WriteLine($"[MainWindowViewModel]   SelectedProjectItem set, current value: Name='{SelectedProjectItem?.Name}'");
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel]   Target item not found in tree");
+            Console.WriteLine($"[MainWindowViewModel]   Target item not found in tree");
         }
     }
 }

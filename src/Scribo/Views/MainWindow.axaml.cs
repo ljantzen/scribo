@@ -507,20 +507,25 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnNavigateToDocument(string documentId)
+    public void OnNavigateToDocument(string documentId)
     {
         DebugTrace($"OnNavigateToDocument called with documentId: '{documentId}'");
+        DebugTrace($"  Call stack: {Environment.StackTrace}");
         
         if (DataContext is MainWindowViewModel vm)
         {
-            DebugTrace($"  DataContext is MainWindowViewModel, calling NavigateToDocument");
+            DebugTrace($"  DataContext is MainWindowViewModel");
+            DebugTrace($"  Calling vm.NavigateToDocument('{documentId}')");
             vm.NavigateToDocument(documentId);
-            DebugTrace($"  NavigateToDocument called");
+            DebugTrace($"  vm.NavigateToDocument returned");
         }
         else
         {
             DebugTrace($"  DataContext is not MainWindowViewModel: {DataContext?.GetType().Name}");
+            DebugTrace($"  DataContext is null: {DataContext == null}");
         }
+        
+        DebugTrace("  OnNavigateToDocument completed");
     }
 
     private void OnEditorTextBoxGotFocus(object? sender, Avalonia.Input.GotFocusEventArgs e)
