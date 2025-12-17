@@ -208,8 +208,8 @@
                           IsOpen="{Binding DocumentLinkAutocompleteViewModel.IsVisible}"
                           PlacementTarget="{Binding #sourceTextBox}"
                           PlacementMode="Bottom"
-                          HorizontalOffset="10"
-                          VerticalOffset="5">
+                          HorizontalOffset="0"
+                          VerticalOffset="0">
                         <views:DocumentLinkAutocompletePopup 
                             DataContext="{Binding DocumentLinkAutocompleteViewModel}"/>
                     </Popup>

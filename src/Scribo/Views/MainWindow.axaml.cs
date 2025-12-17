@@ -55,6 +55,9 @@ public partial class MainWindow : Window
         // Setup keyboard shortcuts
         KeyDown += OnWindowKeyDown;
         
+        // Also add tunnel handler for Up/Down keys to intercept before TextBox consumes them
+        AddHandler(KeyDownEvent, OnWindowKeyDownTunnel, RoutingStrategies.Tunnel);
+        
         // Load and apply keyboard shortcuts from settings
         LoadKeyboardShortcuts();
         
@@ -318,14 +321,23 @@ public partial class MainWindow : Window
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
+        DebugTrace($"OnEditorKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
+        
         if (sender is not TextBox textBox || DataContext is not MainWindowViewModel vm)
+        {
+            DebugTrace("  Early return: sender is not TextBox or DataContext is not MainWindowViewModel");
             return;
+        }
 
         // Only handle autocomplete in source mode
         if (!vm.IsSourceMode)
+        {
+            DebugTrace("  Early return: not in source mode");
             return;
+        }
 
         var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
+        DebugTrace($"  autocompleteVm.IsVisible: {autocompleteVm.IsVisible}, Suggestions.Count: {autocompleteVm.Suggestions.Count}");
         
         // Handle Tab key even when popup is not visible, to check if we're in a [[...]] block
         // This allows Tab to complete autocomplete if popup should be visible
@@ -371,36 +383,53 @@ public partial class MainWindow : Window
             }
         }
         
-        // Only handle other autocomplete keys if popup is visible
-        if (!autocompleteVm.IsVisible)
-            return;
-
-        switch (e.Key)
+        // Handle autocomplete navigation keys when popup is visible
+        // This MUST happen before any other key processing
+        if (autocompleteVm.IsVisible)
         {
-            case Key.Down:
-                e.Handled = true;
-                autocompleteVm.SelectNext();
-                break;
-                
-            case Key.Up:
-                e.Handled = true;
-                autocompleteVm.SelectPrevious();
-                break;
-                
-            case Key.Enter:
-                e.Handled = true;
-                InsertSelectedDocumentLink(textBox, vm);
-                break;
-                
-            case Key.Tab:
-                e.Handled = true;
-                InsertSelectedDocumentLink(textBox, vm);
-                break;
-                
-            case Key.Escape:
-                e.Handled = true;
-                autocompleteVm.Hide();
-                break;
+            DebugTrace($"  Editor: Autocomplete is visible, checking key: {e.Key}");
+            switch (e.Key)
+            {
+                case Key.Down:
+                    DebugTrace("  Editor: Handling Down key for autocomplete navigation");
+                    e.Handled = true;
+                    autocompleteVm.SelectNext();
+                    DebugTrace($"  Editor: Down handled, new SelectedIndex: {autocompleteVm.SelectedIndex}");
+                    return;
+                    
+                case Key.Up:
+                    DebugTrace("  Editor: Handling Up key for autocomplete navigation");
+                    e.Handled = true;
+                    autocompleteVm.SelectPrevious();
+                    DebugTrace($"  Editor: Up handled, new SelectedIndex: {autocompleteVm.SelectedIndex}");
+                    return;
+                    
+                case Key.Enter:
+                    DebugTrace("  Editor: Handling Enter key for autocomplete selection");
+                    e.Handled = true;
+                    InsertSelectedDocumentLink(textBox, vm);
+                    DebugTrace("  Editor: Enter handled, InsertSelectedDocumentLink called");
+                    return;
+                    
+                case Key.Tab:
+                    DebugTrace("  Editor: Handling Tab key for autocomplete selection");
+                    e.Handled = true;
+                    InsertSelectedDocumentLink(textBox, vm);
+                    DebugTrace("  Editor: Tab handled, InsertSelectedDocumentLink called");
+                    return;
+                    
+                case Key.Escape:
+                    DebugTrace("  Editor: Handling Escape key to hide autocomplete");
+                    e.Handled = true;
+                    autocompleteVm.Hide();
+                    DebugTrace("  Editor: Escape handled, Hide called");
+                    return;
+            }
+            DebugTrace($"  Editor: Key {e.Key} not matched in autocomplete switch");
+        }
+        else
+        {
+            DebugTrace($"  Editor: Autocomplete is not visible (IsVisible={autocompleteVm.IsVisible}), skipping autocomplete key handling");
         }
     }
 
@@ -482,18 +511,76 @@ public partial class MainWindow : Window
         var lineNumber = lines.Length - 1;
         var columnNumber = lines.LastOrDefault()?.Length ?? 0;
         
-        // Approximate positioning based on line number and column
-        // Note: This is approximate. For exact positioning, you'd need to measure text rendering
-        var approximateLineHeight = 20; // Approximate line height in pixels
-        var approximateCharWidth = 8; // Approximate character width in pixels
+        // Get accurate font metrics from TextBox
+        var fontSize = textBox.FontSize;
+        var fontFamily = textBox.FontFamily;
+        var typeface = new Typeface(fontFamily);
         
-        // Position popup below the line where [[ appears
-        // Using Bottom placement mode, so we adjust horizontal offset to align with [[
-        popup.HorizontalOffset = 10 + (columnNumber * approximateCharWidth); // Align with [[ position
-        popup.VerticalOffset = 5; // Small offset below current line
+        // Calculate line height: font size + some padding for line spacing
+        // For Consolas at 14pt, typical line height is around 1.2-1.4x font size
+        var lineHeight = fontSize * 1.4;
         
-        // Ensure popup is visible
-        popup.IsOpen = true;
+        // Calculate vertical position: start from TextBox top + padding + (line number * line height)
+        // The TextBox has Padding="10", so we need to account for that
+        var textBoxPadding = 10.0; // From XAML Padding="10"
+        var verticalPositionFromTop = textBoxPadding + (lineNumber * lineHeight);
+        
+        // Calculate horizontal position by measuring text from the start of the current line up to [[
+        // Find the text of the current line up to the bracket position
+        var fullTextToBracket = text.Substring(0, absoluteBracketIndex);
+        var lastNewlineIndex = fullTextToBracket.LastIndexOf('\n');
+        var lineTextUpToBracket = lastNewlineIndex >= 0
+            ? fullTextToBracket.Substring(lastNewlineIndex + 1)
+            : fullTextToBracket;
+        
+        double horizontalPosition;
+        if (lineTextUpToBracket.Length > 0)
+        {
+            try
+            {
+                // Measure the width of text on current line up to [[
+                var formattedLinePart = new FormattedText(
+                    lineTextUpToBracket,
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    typeface,
+                    fontSize,
+                    Brushes.Black);
+                var linePartWidth = formattedLinePart.Width;
+                
+                horizontalPosition = textBoxPadding + linePartWidth;
+            }
+            catch
+            {
+                // Fallback: use column-based estimate
+                var charWidth = fontSize * 0.6; // Approximate monospace char width
+                horizontalPosition = textBoxPadding + (columnNumber * charWidth);
+            }
+        }
+        else
+        {
+            // If line text is empty, use column-based estimate
+            var charWidth = fontSize * 0.6; // Approximate monospace char width
+            horizontalPosition = textBoxPadding + (columnNumber * charWidth);
+        }
+        
+        // Use Bottom placement mode (which we know works for vertical) and calculate vertical offset from bottom
+        popup.PlacementMode = PlacementMode.Bottom;
+        var verticalOffsetFromTop = verticalPositionFromTop + lineHeight + 2;
+        var textBoxHeight = textBox.Bounds.Height;
+        
+        if (textBoxHeight > 0)
+        {
+            // For Bottom placement: offset from bottom = desired position from top - textBox height
+            popup.VerticalOffset = verticalOffsetFromTop - textBoxHeight;
+        }
+        else
+        {
+            popup.VerticalOffset = -50; // Fallback
+        }
+        
+        // Set horizontal offset to align with [[ position
+        popup.HorizontalOffset = horizontalPosition;
     }
 
     private bool _isSelectingMatch = false;
@@ -749,8 +836,52 @@ public partial class MainWindow : Window
             .Replace("Meta+", "Meta+");
     }
     
+    private void OnWindowKeyDownTunnel(object? sender, KeyEventArgs e)
+    {
+        // Tunnel handler - called BEFORE bubble handlers
+        // This intercepts Up/Down/Enter/Escape keys before TextBox can consume them
+        if ((e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape) && DataContext is MainWindowViewModel vm)
+        {
+            var textBox = this.FindControl<TextBox>("sourceTextBox");
+            if (textBox != null && textBox.IsFocused && vm.IsSourceMode)
+            {
+                var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
+                if (autocompleteVm.IsVisible)
+                {
+                    DebugTrace($"OnWindowKeyDownTunnel: Intercepting {e.Key} for autocomplete");
+                    e.Handled = true;
+                    
+                    if (e.Key == Key.Down)
+                    {
+                        autocompleteVm.SelectNext();
+                        DebugTrace($"  Tunnel: Down handled, SelectedIndex: {autocompleteVm.SelectedIndex}");
+                    }
+                    else if (e.Key == Key.Up)
+                    {
+                        autocompleteVm.SelectPrevious();
+                        DebugTrace($"  Tunnel: Up handled, SelectedIndex: {autocompleteVm.SelectedIndex}");
+                    }
+                    else if (e.Key == Key.Enter)
+                    {
+                        InsertSelectedDocumentLink(textBox, vm);
+                        DebugTrace("  Tunnel: Enter handled, InsertSelectedDocumentLink called");
+                    }
+                    else if (e.Key == Key.Escape)
+                    {
+                        autocompleteVm.Hide();
+                        DebugTrace("  Tunnel: Escape handled, Hide called");
+                    }
+                }
+            }
+        }
+    }
+    
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        DebugTrace($"OnWindowKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
+        
+        // Handle other shortcuts (menu navigation, etc.)
+        
         // Handle Tab key for autocomplete completion when TextBox has focus
         // This catches Tab before TextBox consumes it (when AcceptsTab=True)
         if (e.Key == Key.Tab && !e.Handled)
@@ -870,7 +1001,7 @@ public partial class MainWindow : Window
             }
         }
         
-        if (DataContext is MainWindowViewModel vm)
+        if (DataContext is MainWindowViewModel viewModelForShortcuts)
         {
             var settingsService = new ApplicationSettingsService();
             var settings = settingsService.LoadSettings();
@@ -879,7 +1010,7 @@ public partial class MainWindow : Window
             if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             {
                 e.Handled = true;
-                vm.ShowLocalFindCommand.Execute(null);
+                viewModelForShortcuts.ShowLocalFindCommand.Execute(null);
                 return;
             }
             
@@ -894,7 +1025,7 @@ public partial class MainWindow : Window
                 if (searchGesture.Matches(e))
                 {
                     e.Handled = true;
-                    vm.ShowSearchCommand.Execute(null);
+                    viewModelForShortcuts.ShowSearchCommand.Execute(null);
                     return;
                 }
             }
@@ -904,7 +1035,7 @@ public partial class MainWindow : Window
                 if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
                 {
                     e.Handled = true;
-                    vm.ShowSearchCommand.Execute(null);
+                    viewModelForShortcuts.ShowSearchCommand.Execute(null);
                     return;
                 }
             }
@@ -920,11 +1051,11 @@ public partial class MainWindow : Window
                 var gesture = KeyGesture.Parse(renameShortcut);
                 if (gesture.Matches(e))
                 {
-                    if (vm.SelectedProjectItem != null && 
-                        (vm.SelectedProjectItem.IsChapter || vm.SelectedProjectItem.Document != null || vm.SelectedProjectItem.IsSubfolder))
+                    if (viewModelForShortcuts.SelectedProjectItem != null && 
+                        (viewModelForShortcuts.SelectedProjectItem.IsChapter || viewModelForShortcuts.SelectedProjectItem.Document != null || viewModelForShortcuts.SelectedProjectItem.IsSubfolder))
                     {
                         e.Handled = true;
-                        vm.RenameChapterCommand.Execute(vm.SelectedProjectItem);
+                        viewModelForShortcuts.RenameChapterCommand.Execute(viewModelForShortcuts.SelectedProjectItem);
                         
                         // Focus the rename TextBox after a brief delay
                         Dispatcher.UIThread.Post(() =>
@@ -939,11 +1070,11 @@ public partial class MainWindow : Window
                 // Fallback to F2 if parsing fails
                 if (e.Key == Key.F2)
                 {
-                    if (vm.SelectedProjectItem != null && 
-                        (vm.SelectedProjectItem.IsChapter || vm.SelectedProjectItem.Document != null || vm.SelectedProjectItem.IsSubfolder))
+                    if (viewModelForShortcuts.SelectedProjectItem != null && 
+                        (viewModelForShortcuts.SelectedProjectItem.IsChapter || viewModelForShortcuts.SelectedProjectItem.Document != null || viewModelForShortcuts.SelectedProjectItem.IsSubfolder))
                     {
                         e.Handled = true;
-                        vm.RenameChapterCommand.Execute(vm.SelectedProjectItem);
+                        viewModelForShortcuts.RenameChapterCommand.Execute(viewModelForShortcuts.SelectedProjectItem);
                         
                         Dispatcher.UIThread.Post(() =>
                         {
