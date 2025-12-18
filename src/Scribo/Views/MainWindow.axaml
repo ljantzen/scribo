@@ -98,8 +98,9 @@
                                Margin="5"
                                Padding="5"/>
                     <TreeView x:Name="projectTreeViewLeft"
-                              ItemsSource="{Binding ProjectTreeItems}"
-                              SelectedItem="{Binding SelectedProjectItem}">
+                             ItemsSource="{Binding ProjectTreeItems}"
+                             SelectedItem="{Binding SelectedProjectItem}"
+                             Focusable="True">
                         <TreeView.ItemTemplate>
                             <TreeDataTemplate ItemsSource="{Binding Children}">
                                 <Border Background="Transparent"
@@ -178,7 +179,7 @@
                                       DataContext="{Binding FindReplaceViewModel}"/>
                 
                 <!-- Source Mode: TextBox -->
-                <Grid Grid.Row="1" IsVisible="{Binding IsSourceMode}">
+                <Grid Grid.Row="1" IsVisible="{Binding IsSourceMode}" KeyDown="OnEditorGridKeyDown">
                     <TextBox x:Name="sourceTextBox"
                              Text="{Binding EditorText, Mode=TwoWay}"
                              IsReadOnly="{Binding IsEditorReadOnly}"
@@ -190,7 +191,8 @@
                              Padding="10"
                              GotFocus="OnEditorTextBoxGotFocus"
                              TextChanged="OnEditorTextChanged"
-                             KeyDown="OnEditorKeyDown"/>
+                             KeyDown="OnEditorKeyDown"
+                             KeyUp="OnEditorKeyUp"/>
                     
                     <!-- Autocomplete Popup -->
                     <Popup x:Name="autocompletePopup"

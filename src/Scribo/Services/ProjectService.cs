@@ -221,7 +221,6 @@ public class ProjectService
                             var relativePath = Path.GetRelativePath(projectDirectory, trashcanFile);
                             // Normalize to forward slashes for ContentFilePath
                             var newTrashcanPath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
-                            Console.WriteLine($"[LoadProject] Document '{document.Title}' file not found at '{document.ContentFilePath}', found in Trashcan, updating to: '{newTrashcanPath}'");
                             document.ContentFilePath = newTrashcanPath;
                         }
                     }
@@ -251,7 +250,6 @@ public class ProjectService
                         var relativePath = Path.GetRelativePath(projectDirectory, trashcanFile);
                         // Normalize to forward slashes for ContentFilePath
                         document.ContentFilePath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
-                        Console.WriteLine($"[LoadProject] Found document '{document.Title}' in Trashcan, preserving path: '{document.ContentFilePath}'");
                     }
                     else
                     {

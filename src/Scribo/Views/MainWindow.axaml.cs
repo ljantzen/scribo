@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     // Set to false to disable all debug tracing
     private const bool ENABLE_DEBUG_TRACING = true;
     
+    // Track if Shift key is currently pressed
+    private bool _isShiftPressed = false;
+    
     private void DebugTrace(string message)
     {
         // Debug tracing disabled
@@ -69,6 +72,7 @@ public partial class MainWindow : Window
         // Setup drag and drop handlers
         AddHandler(DragDrop.DropEvent, OnTreeViewDrop);
         AddHandler(DragDrop.DragOverEvent, OnTreeViewDragOver);
+        
         
         // Setup handlers
         _keyboardEventHandler.Setup();
@@ -256,10 +260,182 @@ public partial class MainWindow : Window
         vm.DocumentLinkAutocompleteViewModel.Hide();
     }
 
+    private void OnEditorGridKeyDown(object? sender, KeyEventArgs e)
+    {
+        // Backup handler - but window level tunneling should catch it first
+        
+        // Track Shift key state
+        if (e.Key == Key.LeftShift || e.Key == Key.RightShift)
+        {
+            _isShiftPressed = true;
+            return;
+        }
+        
+        if (e.Key == Key.Tab)
+        {
+            
+            // If Shift is pressed, handle Shift+Tab
+            if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || _isShiftPressed)
+            {
+                e.Handled = true;
+                _isShiftPressed = false;
+                var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+                if (treeView != null)
+                {
+                    Dispatcher.UIThread.Post(() => 
+                    {
+                        treeView.Focus();
+                    }, DispatcherPriority.Input);
+                }
+                return;
+            }
+        }
+        
+        // Reset shift state if any other key is pressed
+        if (e.Key != Key.LeftShift && e.Key != Key.RightShift)
+        {
+            _isShiftPressed = false;
+        }
+        
+        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+            var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+            if (treeView != null)
+            {
+                Dispatcher.UIThread.Post(() => 
+                {
+                    treeView.Focus();
+                }, DispatcherPriority.Input);
+            }
+        }
+    }
+
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
+        // Log ALL key events to see what we're getting
         
-        if (sender is not TextBox textBox || DataContext is not MainWindowViewModel vm)
+        // Get TextBox reference early
+        var sourceTextBox = sender as TextBox;
+        
+        // Track Shift key state and temporarily disable AcceptsTab to intercept Tab events
+        if (e.Key == Key.LeftShift || e.Key == Key.RightShift)
+        {
+            _isShiftPressed = true;
+            
+            // Temporarily disable AcceptsTab so Tab events bubble up to us
+            if (sourceTextBox != null)
+            {
+                sourceTextBox.AcceptsTab = false;
+            }
+            return; // Don't process Shift key itself
+        }
+        
+        // Check if Tab is pressed while Shift is held
+        if (e.Key == Key.Tab)
+        {
+            
+            // If Shift is pressed (either from modifier or tracked state), handle Shift+Tab
+            if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || _isShiftPressed)
+            {
+                e.Handled = true;
+                _isShiftPressed = false; // Reset shift state
+                
+                // Re-enable AcceptsTab
+                if (sourceTextBox != null)
+                {
+                    sourceTextBox.AcceptsTab = true;
+                }
+                
+                var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+                if (treeView != null)
+                {
+                    
+                    // Use dispatcher to ensure this happens after current event processing
+                    Dispatcher.UIThread.Post(() => 
+                    {
+                        
+                        // Try to find and focus the TreeViewItem for the currently selected document
+                        void TryFocusTreeViewItem()
+                        {
+                            if (DataContext is not MainWindowViewModel vm)
+                            {
+                                return;
+                            }
+                            
+                            var selectedItem = vm.SelectedProjectItem;
+                            
+                            if (selectedItem != null)
+                            {
+                                // Find the TreeViewItem that corresponds to the selected item
+                                var visualTree = treeView.GetVisualDescendants();
+                                var treeViewItem = visualTree
+                                    .OfType<TreeViewItem>()
+                                    .FirstOrDefault(item => item.DataContext == selectedItem);
+                                
+                                
+                                if (treeViewItem != null)
+                                {
+                                    // Ensure the item is visible (expand parents if needed)
+                                    var parent = treeViewItem.Parent;
+                                    while (parent != null)
+                                    {
+                                        if (parent is TreeViewItem parentItem && !parentItem.IsExpanded)
+                                        {
+                                            parentItem.IsExpanded = true;
+                                        }
+                                        parent = parent.Parent;
+                                    }
+                                    
+                                    treeViewItem.IsSelected = true;
+                                    var itemFocused = treeViewItem.Focus();
+                                    
+                                    if (itemFocused && treeViewItem.IsFocused)
+                                    {
+                                        return;
+                                    }
+                                }
+                            }
+                            
+                            // Fallback: try focusing the tree view itself
+                            var treeFocused = treeView.Focus();
+                            
+                            if (!treeFocused || !treeView.IsFocused)
+                            {
+                                // Last resort: focus first item
+                                var visualTree = treeView.GetVisualDescendants();
+                                var firstTreeViewItem = visualTree
+                                    .OfType<TreeViewItem>()
+                                    .FirstOrDefault();
+                                
+                                if (firstTreeViewItem != null)
+                                {
+                                    firstTreeViewItem.IsSelected = true;
+                                    firstTreeViewItem.Focus();
+                                }
+                            }
+                        }
+                        
+                        TryFocusTreeViewItem();
+                    }, DispatcherPriority.Loaded);
+                }
+                return;
+            }
+        }
+        
+        // Reset shift state if any other key is pressed (Shift was released)
+        if (e.Key != Key.LeftShift && e.Key != Key.RightShift)
+        {
+            _isShiftPressed = false;
+            
+            // Re-enable AcceptsTab if it was disabled
+            if (sourceTextBox != null && !sourceTextBox.AcceptsTab)
+            {
+                sourceTextBox.AcceptsTab = true;
+            }
+        }
+        
+        if (sourceTextBox == null || DataContext is not MainWindowViewModel vm)
         {
             return;
         }
@@ -277,8 +453,8 @@ public partial class MainWindow : Window
         if (e.Key == Key.Tab)
         {
             // Check if we're inside a [[...]] block that should show autocomplete
-            var text = textBox.Text ?? string.Empty;
-            var caretIndex = textBox.CaretIndex;
+            var text = sourceTextBox.Text ?? string.Empty;
+            var caretIndex = sourceTextBox.CaretIndex;
             
             if (caretIndex >= 2)
             {
@@ -301,14 +477,14 @@ public partial class MainWindow : Window
                         if (autocompleteVm.IsVisible)
                         {
                             e.Handled = true;
-                            InsertSelectedDocumentLink(textBox, vm);
+                            InsertSelectedDocumentLink(sourceTextBox, vm);
                             return;
                         }
                         // If popup should be visible but isn't, try to complete anyway
                         else if (autocompleteVm.Suggestions.Count > 0)
                         {
                             e.Handled = true;
-                            InsertSelectedDocumentLink(textBox, vm);
+                            InsertSelectedDocumentLink(sourceTextBox, vm);
                             return;
                         }
                     }
@@ -334,12 +510,12 @@ public partial class MainWindow : Window
                     
                 case Key.Enter:
                     e.Handled = true;
-                    InsertSelectedDocumentLink(textBox, vm);
+                    InsertSelectedDocumentLink(sourceTextBox, vm);
                     return;
                     
                 case Key.Tab:
                     e.Handled = true;
-                    InsertSelectedDocumentLink(textBox, vm);
+                    InsertSelectedDocumentLink(sourceTextBox, vm);
                     return;
                     
                 case Key.Escape:
@@ -350,6 +526,22 @@ public partial class MainWindow : Window
         }
         else
         {
+            // Shift+Tab is handled earlier in the function
+        }
+    }
+
+    private void OnEditorKeyUp(object? sender, KeyEventArgs e)
+    {
+        // Track when Shift is released
+        if (e.Key == Key.LeftShift || e.Key == Key.RightShift)
+        {
+            _isShiftPressed = false;
+            
+            // Re-enable AcceptsTab when Shift is released
+            if (sender is TextBox textBox && !textBox.AcceptsTab)
+            {
+                textBox.AcceptsTab = true;
+            }
         }
     }
 
@@ -745,6 +937,51 @@ public partial class MainWindow : Window
     private void OnWindowKeyDownTunnel(object? sender, KeyEventArgs e)
     {
         // Tunnel handler - called BEFORE bubble handlers
+        // Handle Shift+Tab FIRST to move focus to project tree before TextBox processes it
+        
+        if (e.Key == Key.Tab)
+        {
+            // Check if Shift is currently pressed
+            var hasShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+            
+            // Check if Shift is pressed
+            if (hasShift)
+            {
+                var sourceTextBox = this.FindControl<TextBox>("sourceTextBox");
+                if (sourceTextBox != null && sourceTextBox.IsFocused)
+                {
+                    e.Handled = true;
+                    var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+                    if (treeView != null)
+                    {
+                        Dispatcher.UIThread.Post(() => 
+                        {
+                            treeView.Focus();
+                        }, DispatcherPriority.Input);
+                    }
+                    return;
+                }
+            }
+        }
+        
+        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            var sourceTextBox = this.FindControl<TextBox>("sourceTextBox");
+            if (sourceTextBox != null && sourceTextBox.IsFocused)
+            {
+                e.Handled = true;
+                var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+                if (treeView != null)
+                {
+                    Dispatcher.UIThread.Post(() => 
+                    {
+                        treeView.Focus();
+                    }, DispatcherPriority.Input);
+                }
+                return;
+            }
+        }
+        
         // This intercepts Up/Down/Enter/Escape keys before TextBox can consume them
         if ((e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape) && DataContext is MainWindowViewModel vm)
         {
@@ -792,6 +1029,30 @@ public partial class MainWindow : Window
     {
         
         // Handle other shortcuts (menu navigation, etc.)
+        
+        // Handle Shift+Tab to move focus to project tree (before Tab handling)
+        
+        if (e.Key == Key.Tab)
+        {
+        }
+        
+        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.Shift && !e.Handled)
+        {
+            var sourceTextBox = this.FindControl<TextBox>("sourceTextBox");
+            if (sourceTextBox != null && sourceTextBox.IsFocused)
+            {
+                e.Handled = true;
+                var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+                if (treeView != null)
+                {
+                    Dispatcher.UIThread.Post(() => 
+                    {
+                        treeView.Focus();
+                    }, DispatcherPriority.Input);
+                }
+                return;
+            }
+        }
         
         // Handle Tab key for autocomplete completion when TextBox has focus
         // This catches Tab before TextBox consumes it (when AcceptsTab=True)
