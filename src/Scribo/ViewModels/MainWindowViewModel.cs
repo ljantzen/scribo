@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Scribo;
 using Scribo.Models;
 using Scribo.Services;
 using Scribo.Views;
@@ -3201,6 +3202,12 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_parentWindow is Views.MainWindow mainWindow)
             {
                 mainWindow.ReloadKeyboardShortcuts();
+            }
+            
+            // Apply theme change
+            if (Application.Current is App app)
+            {
+                app.ApplyTheme(prefs.Theme);
             }
         }, settingsService);
 
