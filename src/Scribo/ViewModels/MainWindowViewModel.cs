@@ -16,6 +16,8 @@ using CommunityToolkit.Mvvm.Input;
 using Scribo.Models;
 using Scribo.Services;
 using Scribo.Views;
+using Scribo.ViewModels.Helpers;
+using Scribo.ViewModels.Managers;
 
 namespace Scribo.ViewModels;
 
@@ -27,6 +29,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly MostRecentlyUsedService _mruService;
     private readonly SearchIndexService _searchIndexService;
     private readonly DocumentLinkService _documentLinkService;
+    private readonly StatisticsManager _statisticsManager;
+    private readonly MarkdownRenderer _markdownRenderer;
     private FileDialogService? _fileDialogService;
     private Window? _parentWindow;
     private SearchWindow? _searchWindow;
@@ -105,6 +109,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _mruService = mruService ?? new MostRecentlyUsedService();
         _searchIndexService = searchIndexService ?? new SearchIndexService();
         _documentLinkService = new DocumentLinkService();
+        _statisticsManager = new StatisticsManager(_projectService);
+        _markdownRenderer = new MarkdownRenderer(_documentLinkService);
         InitializeProjectTree();
         UpdateRecentProjectsList();
         InitializeIdleStatisticsTimer();
@@ -207,52 +213,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void CalculateStatistics()
     {
-        if (_currentProject == null)
-            return;
-
-        try
-        {
-            // Ensure all documents have ProjectDirectory set if we have a project path
-            if (!string.IsNullOrEmpty(CurrentProjectPath))
-            {
-                var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-                foreach (var document in _currentProject.Documents)
-                {
-                    if (string.IsNullOrEmpty(document.ProjectDirectory))
-                    {
-                        document.ProjectDirectory = projectDirectory;
-                    }
-                }
-            }
-
-            // Update the selected document's content from editor if it exists
-            // This ensures statistics reflect the current editor content
-            if (SelectedProjectItem?.Document != null)
-            {
-                SelectedProjectItem.Document.Content = EditorText;
-            }
-
-            // Ensure Statistics object exists
-            if (_currentProject.Metadata.Statistics == null)
-            {
-                _currentProject.Metadata.Statistics = new ProjectStatistics();
-            }
-
-            // Calculate statistics
-            _projectService.UpdateProjectStatistics(_currentProject);
-            
-            // Update observable properties for status bar
-            UpdateStatisticsDisplay();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error calculating statistics: {ex.Message}");
-        }
+        _statisticsManager.SetCurrentProject(_currentProject, CurrentProjectPath);
+        var statistics = _statisticsManager.CalculateStatistics(SelectedProjectItem?.Document, EditorText);
+        UpdateStatisticsDisplay(statistics);
     }
 
-    private void UpdateStatisticsDisplay()
+    private void UpdateStatisticsDisplay(ProjectStatistics? statistics = null)
     {
-        if (_currentProject?.Metadata?.Statistics == null)
+        statistics ??= _currentProject?.Metadata?.Statistics;
+        
+        if (statistics == null)
         {
             TotalWordCount = 0;
             TotalCharacterCount = 0;
@@ -261,21 +231,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var stats = _currentProject.Metadata.Statistics;
-        TotalWordCount = stats.TotalWordCount;
-        TotalCharacterCount = stats.TotalCharacterCount;
-        TotalPageCount = stats.TotalPageCount;
+        TotalWordCount = statistics.TotalWordCount;
+        TotalCharacterCount = statistics.TotalCharacterCount;
+        TotalPageCount = statistics.TotalPageCount;
         
-        // Format statistics text for status bar
-        // Show word count, character count, and page count
-        StatisticsText = $"Words: {TotalWordCount:N0} | Characters: {TotalCharacterCount:N0} | Pages: {TotalPageCount}";
-        
-        // If there's a word count target, show progress
-        if (_currentProject.Metadata.WordCountTargets?.TargetWordCount > 0)
-        {
-            var progress = (double)TotalWordCount / _currentProject.Metadata.WordCountTargets.TargetWordCount * 100;
-            StatisticsText += $" | Progress: {progress:F1}%";
-        }
+        var targetWordCount = _currentProject?.Metadata?.WordCountTargets?.TargetWordCount;
+        StatisticsText = _statisticsManager.FormatStatisticsText(statistics, targetWordCount);
     }
     
     public void Dispose()
@@ -292,50 +253,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void InitializeProjectTree()
     {
-        var root = new ProjectTreeItemViewModel
-        {
-            Name = "Untitled Project",
-            Icon = "📁",
-            IsRoot = true,
-            Children = new ObservableCollection<ProjectTreeItemViewModel>
-            {
-                new() 
-                { 
-                    Name = "Manuscript", 
-                    Icon = "📁",
-                    IsManuscriptFolder = true,
-                    Children = new ObservableCollection<ProjectTreeItemViewModel>() 
-                },
-                new() 
-                { 
-                    Name = "Characters", 
-                    Icon = "📁",
-                    IsCharactersFolder = true,
-                    Children = new ObservableCollection<ProjectTreeItemViewModel>() 
-                },
-                new() 
-                { 
-                    Name = "Locations", 
-                    Icon = "📁",
-                    IsLocationsFolder = true,
-                    Children = new ObservableCollection<ProjectTreeItemViewModel>() 
-                },
-                new() 
-                { 
-                    Name = "Research", 
-                    Icon = "📁",
-                    IsResearchFolder = true,
-                    Children = new ObservableCollection<ProjectTreeItemViewModel>() 
-                },
-                new() 
-                { 
-                    Name = "Notes", 
-                    Icon = "📁",
-                    IsNotesFolder = true,
-                    Children = new ObservableCollection<ProjectTreeItemViewModel>() 
-                }
-            }
-        };
+        var root = ProjectTreeBuilder.CreateInitialProjectTree();
         ProjectTreeItems.Add(root);
         
         // Initialize statistics display
@@ -591,7 +509,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void UpdateRenderedMarkdown()
     {
-        var blocks = RenderMarkdownToBlocks(EditorText);
+        if (!IsPreviewMode || string.IsNullOrWhiteSpace(EditorText))
+        {
+            RenderedMarkdownBlocks.Clear();
+            RenderedMarkdown = string.Empty;
+            return;
+        }
+
+        // Parse markdown into blocks using MarkdownRenderer
+        var blocks = _markdownRenderer.RenderMarkdown(EditorText, _currentProject);
         RenderedMarkdownBlocks.Clear();
         
         // Add blocks, but skip empty paragraphs unless they're needed for spacing
@@ -614,141 +540,18 @@ public partial class MainWindowViewModel : ViewModelBase
                 Content = EditorText 
             });
         }
+        
+        // Also generate HTML for WebView (if needed)
+        RenderedMarkdown = _markdownRenderer.RenderMarkdownToHtml(EditorText);
     }
 
-    private List<MarkdownBlock> RenderMarkdownToBlocks(string markdown)
-    {
-        var blocks = new List<MarkdownBlock>();
-        if (string.IsNullOrEmpty(markdown))
-            return blocks;
+    // RenderMarkdownToBlocks removed - now using MarkdownRenderer.RenderMarkdown()
 
-        var lines = markdown.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
-        bool inCodeBlock = false;
-        var codeBlockLines = new List<string>();
-
-        foreach (var line in lines)
-        {
-            var trimmedLine = line.TrimEnd();
-
-            // Code blocks
-            if (trimmedLine.StartsWith("```"))
-            {
-                if (inCodeBlock)
-                {
-                    if (codeBlockLines.Count > 0)
-                    {
-                        blocks.Add(new MarkdownBlock 
-                        { 
-                            Type = MarkdownBlockType.CodeBlock, 
-                            Content = string.Join("\n", codeBlockLines) 
-                        });
-                    }
-                    codeBlockLines.Clear();
-                    inCodeBlock = false;
-                }
-                else
-                {
-                    inCodeBlock = true;
-                }
-                continue;
-            }
-
-            if (inCodeBlock)
-            {
-                codeBlockLines.Add(line);
-                continue;
-            }
-
-            // Headers
-            if (trimmedLine.StartsWith("# "))
-            {
-                var headingBlock = new MarkdownBlock 
-                { 
-                    Type = MarkdownBlockType.Heading1, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2), out var h1Links)
-                };
-                headingBlock.Links = h1Links;
-                blocks.Add(headingBlock);
-                continue;
-            }
-            if (trimmedLine.StartsWith("## "))
-            {
-                var headingBlock = new MarkdownBlock 
-                { 
-                    Type = MarkdownBlockType.Heading2, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(3), out var h2Links)
-                };
-                headingBlock.Links = h2Links;
-                blocks.Add(headingBlock);
-                continue;
-            }
-            if (trimmedLine.StartsWith("### "))
-            {
-                var headingBlock = new MarkdownBlock 
-                { 
-                    Type = MarkdownBlockType.Heading3, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(4), out var h3Links)
-                };
-                headingBlock.Links = h3Links;
-                blocks.Add(headingBlock);
-                continue;
-            }
-            if (trimmedLine.StartsWith("#### "))
-            {
-                var headingBlock = new MarkdownBlock 
-                { 
-                    Type = MarkdownBlockType.Heading4, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(5), out var h4Links)
-                };
-                headingBlock.Links = h4Links;
-                blocks.Add(headingBlock);
-                continue;
-            }
-
-            // Lists
-            if (trimmedLine.StartsWith("- ") || trimmedLine.StartsWith("* "))
-            {
-                var listBlock = new MarkdownBlock 
-                { 
-                    Type = MarkdownBlockType.ListItem, 
-                    Content = ProcessInlineMarkdownText(trimmedLine.Substring(2), out var listLinks)
-                };
-                listBlock.Links = listLinks;
-                blocks.Add(listBlock);
-                continue;
-            }
-
-            // Empty line
-            if (string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                blocks.Add(new MarkdownBlock { Type = MarkdownBlockType.Paragraph, Content = "" });
-                continue;
-            }
-
-            // Regular paragraph
-            var paragraphBlock = new MarkdownBlock 
-            { 
-                Type = MarkdownBlockType.Paragraph, 
-                Content = ProcessInlineMarkdownText(trimmedLine, out var links)
-            };
-            paragraphBlock.Links = links;
-            blocks.Add(paragraphBlock);
-        }
-
-        if (inCodeBlock && codeBlockLines.Count > 0)
-        {
-            blocks.Add(new MarkdownBlock 
-            { 
-                Type = MarkdownBlockType.CodeBlock, 
-                Content = string.Join("\n", codeBlockLines) 
-            });
-        }
-
-        return blocks;
-    }
-
+    // Legacy method - kept for backward compatibility, now uses MarkdownRenderer
     private string ProcessInlineMarkdownText(string text, out List<DocumentLink> links)
     {
+        // Use MarkdownRenderer's internal method via reflection or create a public method
+        // For now, keeping this for compatibility but it's redundant with MarkdownRenderer
         links = new List<DocumentLink>();
         
         if (string.IsNullOrEmpty(text))
@@ -764,13 +567,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         
         links = documentLinks;
-
-        // Store original link positions before text processing
-        var linkPositions = new Dictionary<DocumentLink, int>();
-        foreach (var link in documentLinks)
-        {
-            linkPositions[link] = link.StartIndex;
-        }
 
         // Remove markdown syntax for now - in a full implementation we'd parse and format
         // Bold: **text** -> text (will be formatted by TextBlock styling)
@@ -808,194 +604,7 @@ public partial class MainWindowViewModel : ViewModelBase
         return text;
     }
 
-    private string RenderMarkdownToHtml(string markdown)
-    {
-        if (string.IsNullOrEmpty(markdown))
-            return string.Empty;
-
-        var html = new System.Text.StringBuilder();
-        html.AppendLine("<!DOCTYPE html>");
-        html.AppendLine("<html><head>");
-        html.AppendLine("<meta charset=\"utf-8\">");
-        html.AppendLine("<style>");
-        html.AppendLine("body { font-family: 'Inter', 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; padding: 20px; margin: 0; }");
-        html.AppendLine("h1 { font-size: 2em; margin-top: 0.67em; margin-bottom: 0.67em; font-weight: bold; }");
-        html.AppendLine("h2 { font-size: 1.5em; margin-top: 0.83em; margin-bottom: 0.83em; font-weight: bold; }");
-        html.AppendLine("h3 { font-size: 1.17em; margin-top: 1em; margin-bottom: 1em; font-weight: bold; }");
-        html.AppendLine("h4 { font-size: 1em; margin-top: 1.33em; margin-bottom: 1.33em; font-weight: bold; }");
-        html.AppendLine("p { margin-top: 1em; margin-bottom: 1em; }");
-        html.AppendLine("ul, ol { margin-top: 1em; margin-bottom: 1em; padding-left: 2em; }");
-        html.AppendLine("li { margin-top: 0.5em; margin-bottom: 0.5em; }");
-        html.AppendLine("code { background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-family: 'Consolas', monospace; }");
-        html.AppendLine("pre { background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }");
-        html.AppendLine("pre code { background-color: transparent; padding: 0; }");
-        html.AppendLine("a { color: #0066cc; text-decoration: none; }");
-        html.AppendLine("a:hover { text-decoration: underline; }");
-        html.AppendLine("strong { font-weight: bold; }");
-        html.AppendLine("em { font-style: italic; }");
-        html.AppendLine("</style>");
-        html.AppendLine("</head><body>");
-
-        var lines = markdown.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
-        bool inCodeBlock = false;
-        bool inList = false;
-        bool inParagraph = false;
-
-        foreach (var line in lines)
-        {
-            var trimmedLine = line.TrimEnd();
-
-            // Code blocks
-            if (trimmedLine.StartsWith("```"))
-            {
-                if (inCodeBlock)
-                {
-                    html.AppendLine("</code></pre>");
-                    inCodeBlock = false;
-                }
-                else
-                {
-                    var language = trimmedLine.Length > 3 ? trimmedLine.Substring(3).Trim() : "";
-                    html.AppendLine($"<pre><code class=\"language-{HtmlEncode(language)}\">");
-                    inCodeBlock = true;
-                }
-                continue;
-            }
-
-            if (inCodeBlock)
-            {
-                html.AppendLine(HtmlEncode(line));
-                continue;
-            }
-
-            // Headers
-            if (trimmedLine.StartsWith("# "))
-            {
-                CloseParagraph(ref inParagraph, html);
-                html.AppendLine($"<h1>{ProcessInlineMarkdown(trimmedLine.Substring(2))}</h1>");
-                continue;
-            }
-            if (trimmedLine.StartsWith("## "))
-            {
-                CloseParagraph(ref inParagraph, html);
-                html.AppendLine($"<h2>{ProcessInlineMarkdown(trimmedLine.Substring(3))}</h2>");
-                continue;
-            }
-            if (trimmedLine.StartsWith("### "))
-            {
-                CloseParagraph(ref inParagraph, html);
-                html.AppendLine($"<h3>{ProcessInlineMarkdown(trimmedLine.Substring(4))}</h3>");
-                continue;
-            }
-            if (trimmedLine.StartsWith("#### "))
-            {
-                CloseParagraph(ref inParagraph, html);
-                html.AppendLine($"<h4>{ProcessInlineMarkdown(trimmedLine.Substring(5))}</h4>");
-                continue;
-            }
-
-            // Lists
-            if (trimmedLine.StartsWith("- ") || trimmedLine.StartsWith("* "))
-            {
-                CloseParagraph(ref inParagraph, html);
-                if (!inList)
-                {
-                    html.AppendLine("<ul>");
-                    inList = true;
-                }
-                var listItem = ProcessInlineMarkdown(trimmedLine.Substring(2));
-                html.AppendLine($"<li>{listItem}</li>");
-                continue;
-            }
-
-            // Close list if needed
-            if (inList && string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                html.AppendLine("</ul>");
-                inList = false;
-                continue;
-            }
-
-            // Empty line
-            if (string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                CloseParagraph(ref inParagraph, html);
-                continue;
-            }
-
-            // Regular paragraph
-            if (!inParagraph)
-            {
-                html.Append("<p>");
-                inParagraph = true;
-            }
-            else
-            {
-                html.Append(" ");
-            }
-            html.Append(ProcessInlineMarkdown(trimmedLine));
-        }
-
-        CloseParagraph(ref inParagraph, html);
-        if (inList)
-        {
-            html.AppendLine("</ul>");
-        }
-        if (inCodeBlock)
-        {
-            html.AppendLine("</code></pre>");
-        }
-
-        html.AppendLine("</body></html>");
-        return html.ToString();
-    }
-
-    private void CloseParagraph(ref bool inParagraph, System.Text.StringBuilder html)
-    {
-        if (inParagraph)
-        {
-            html.AppendLine("</p>");
-            inParagraph = false;
-        }
-    }
-
-    private string ProcessInlineMarkdown(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-
-        // Escape HTML first
-        text = HtmlEncode(text);
-
-        // Bold: **text** or __text__
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"__(.+?)__", "<strong>$1</strong>");
-
-        // Italic: *text* or _text_ (but not if part of **)
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<![\*_])(?<!\*)\*(?!\*)([^\*]+?)(?<!\*)\*(?!\*)(?![\*_])", "<em>$1</em>");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<!_)_([^_]+?)_(?!_)", "<em>$1</em>");
-
-        // Code: `code`
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+?)`", "<code>$1</code>");
-
-        // Links: [text](url)
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+?)\]\(([^\)]+?)\)", "<a href=\"$2\">$1</a>");
-
-        return text;
-    }
-
-    private string HtmlEncode(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-
-        return text
-            .Replace("&", "&amp;")
-            .Replace("<", "&lt;")
-            .Replace(">", "&gt;")
-            .Replace("\"", "&quot;")
-            .Replace("'", "&#39;");
-    }
+    // HTML rendering methods moved to MarkdownRenderer
 
     [RelayCommand]
     private void ToggleViewMode()
@@ -1071,288 +680,33 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateAutocompleteDocuments();
         ProjectTreeItems.Clear();
         
-        // Ensure ProjectDirectory is set on all documents if we have a project path
-        if (!string.IsNullOrEmpty(CurrentProjectPath))
-        {
-            var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-            foreach (var document in project.Documents)
-            {
-                if (string.IsNullOrEmpty(document.ProjectDirectory))
-                {
-                    document.ProjectDirectory = projectDirectory;
-                }
-            }
-        }
-        
-        var root = new ProjectTreeItemViewModel
-        {
-            Name = project.Name,
-            Icon = "📁",
-            IsRoot = true
-        };
-
-        // Build a dictionary of documents by ID for quick lookup
-        var documentsById = project.Documents.ToDictionary(d => d.Id);
-        
-        // Organize documents hierarchically
-        var chapters = project.Documents.Where(d => d.Type == DocumentType.Chapter).ToList();
-        var scenes = project.Documents.Where(d => d.Type == DocumentType.Scene).ToList();
-        var otherDocuments = project.Documents.Where(d => d.Type != DocumentType.Chapter && d.Type != DocumentType.Scene).ToList();
-
-        // Always add Manuscript folder (even if empty)
-        var manuscriptNode = new ProjectTreeItemViewModel
-        {
-            Name = "Manuscript",
-            Icon = "📁",
-            IsManuscriptFolder = true
-        };
-
-        // Organize chapters into folders and subfolders
-        var chaptersInRoot = chapters.Where(c => string.IsNullOrEmpty(c.FolderPath)).OrderBy(c => c.CreatedAt);
-        var chaptersInSubfolders = chapters.Where(c => !string.IsNullOrEmpty(c.FolderPath)).ToList();
-
-        // Add chapters directly in the root Manuscript folder
-        foreach (var chapter in chaptersInRoot)
-        {
-            var chapterNode = new ProjectTreeItemViewModel
-            {
-                Name = chapter.Title,
-                Icon = GetIconForDocumentType(chapter.Type),
-                Document = chapter
-            };
-
-            // Add scenes that belong to this chapter
-            var chapterScenes = scenes.Where(s => s.ParentId == chapter.Id).OrderBy(s => s.Order).ThenBy(s => s.CreatedAt);
-            foreach (var scene in chapterScenes)
-            {
-                chapterNode.Children.Add(new ProjectTreeItemViewModel
-                {
-                    Name = scene.Title,
-                    Icon = GetIconForDocumentType(scene.Type),
-                    Document = scene
-                });
-            }
-
-            manuscriptNode.Children.Add(chapterNode);
-        }
-
-        // Group chapters by subfolder path
-        var subfolderGroups = chaptersInSubfolders
-            .GroupBy(c => c.FolderPath.Split('/')[0]) // First level subfolder
-            .OrderBy(g => g.Key);
-
-        foreach (var subfolderGroup in subfolderGroups)
-        {
-            var subfolderName = subfolderGroup.Key;
-            var subfolderNode = new ProjectTreeItemViewModel
-            {
-                Name = subfolderName,
-                Icon = "📁",
-                FolderPath = subfolderName,
-                FolderDocumentType = DocumentType.Chapter
-            };
-
-            // Add chapters in this subfolder
-            foreach (var chapter in subfolderGroup.OrderBy(c => c.Order).ThenBy(c => c.CreatedAt))
-            {
-                var chapterNode = new ProjectTreeItemViewModel
-                {
-                    Name = chapter.Title,
-                    Icon = GetIconForDocumentType(chapter.Type),
-                    Document = chapter
-                };
-
-                // Add scenes that belong to this chapter
-                var chapterScenes = scenes.Where(s => s.ParentId == chapter.Id).OrderBy(s => s.CreatedAt);
-                foreach (var scene in chapterScenes)
-                {
-                    chapterNode.Children.Add(new ProjectTreeItemViewModel
-                    {
-                        Name = scene.Title,
-                        Icon = GetIconForDocumentType(scene.Type),
-                        Document = scene
-                    });
-                }
-
-                subfolderNode.Children.Add(chapterNode);
-            }
-
-            manuscriptNode.Children.Add(subfolderNode);
-        }
-
-        root.Children.Add(manuscriptNode);
-
-        // Always add other document type folders (even if empty)
-        var documentTypes = new[] 
-        { 
-            DocumentType.Character, 
-            DocumentType.Location, 
-            DocumentType.Research, 
-            DocumentType.Note 
-        };
-
-        foreach (var docType in documentTypes)
-        {
-            var typeFolder = new ProjectTreeItemViewModel
-            {
-                Name = GetTypeFolderName(docType),
-                Icon = "📁"
-            };
-
-            // Mark folder types
-            if (docType == DocumentType.Character)
-            {
-                typeFolder.IsCharactersFolder = true;
-            }
-            else if (docType == DocumentType.Location)
-            {
-                typeFolder.IsLocationsFolder = true;
-            }
-            else if (docType == DocumentType.Research)
-            {
-                typeFolder.IsResearchFolder = true;
-            }
-            else if (docType == DocumentType.Note)
-            {
-                typeFolder.IsNotesFolder = true;
-            }
-
-            // Organize documents into folders and subfolders
-            var docsInRoot = otherDocuments.Where(d => d.Type == docType && string.IsNullOrEmpty(d.FolderPath)).OrderBy(d => d.Order).ThenBy(d => d.Title);
-            var docsInSubfolders = otherDocuments.Where(d => d.Type == docType && !string.IsNullOrEmpty(d.FolderPath)).ToList();
-
-            // Add documents directly in the root folder
-            foreach (var doc in docsInRoot)
-            {
-                typeFolder.Children.Add(new ProjectTreeItemViewModel
-                {
-                    Name = doc.Title,
-                    Icon = GetIconForDocumentType(doc.Type),
-                    Document = doc
-                });
-            }
-
-            // Group documents by subfolder path
-            var docSubfolderGroups = docsInSubfolders
-                .GroupBy(d => d.FolderPath.Split('/')[0]) // First level subfolder
-                .OrderBy(g => g.Key);
-
-            foreach (var subfolderGroup in docSubfolderGroups)
-            {
-                var subfolderName = subfolderGroup.Key;
-                var subfolderNode = new ProjectTreeItemViewModel
-                {
-                    Name = subfolderName,
-                    Icon = "📁",
-                    FolderPath = subfolderName,
-                    FolderDocumentType = docType
-                };
-
-            // Add documents in this subfolder
-            foreach (var doc in subfolderGroup.OrderBy(d => d.Order).ThenBy(d => d.Title))
-                {
-                    subfolderNode.Children.Add(new ProjectTreeItemViewModel
-                    {
-                        Name = doc.Title,
-                        Icon = GetIconForDocumentType(doc.Type),
-                        Document = doc
-                    });
-                }
-
-                typeFolder.Children.Add(subfolderNode);
-            }
-
-            root.Children.Add(typeFolder);
-        }
-
+        // Build project tree using ProjectTreeBuilder helper
+        var root = ProjectTreeBuilder.BuildProjectTree(project, CurrentProjectPath);
         ProjectTreeItems.Add(root);
         
         // Update statistics display after loading project
         UpdateStatisticsDisplay();
     }
 
-    private string GetTypeFolderName(DocumentType type)
-    {
-        return type switch
-        {
-            DocumentType.Character => "Characters",
-            DocumentType.Location => "Locations",
-            DocumentType.Research => "Research",
-            DocumentType.Note => "Notes",
-            DocumentType.Other => "Other",
-            _ => "Documents"
-        };
-    }
-
     private Project BuildProjectFromCurrentState()
     {
-        // Start with the current project if it exists, otherwise create a new one
-        var project = _currentProject ?? new Project
+        var rootItem = ProjectTreeItems.FirstOrDefault();
+        if (rootItem == null)
         {
-            Name = ProjectTreeItems.FirstOrDefault()?.Name ?? "Untitled Project",
-            FilePath = CurrentProjectPath
-        };
-
-        // Update the project name from the tree
-        project.Name = ProjectTreeItems.FirstOrDefault()?.Name ?? "Untitled Project";
-        project.FilePath = CurrentProjectPath;
-
-        // If there's a selected document, update its content with the editor text
-        if (SelectedProjectItem?.Document != null)
-        {
-            SelectedProjectItem.Document.Content = EditorText;
+            // Create a default root item if none exists
+            rootItem = ProjectTreeBuilder.CreateInitialProjectTree();
         }
-
-        // Ensure all documents from the current project are included
-        // (they should already be there if _currentProject exists)
-        if (_currentProject == null)
-        {
-            // If no current project, we need to build it from the tree
-            // This shouldn't normally happen, but handle it as a fallback
-            foreach (var rootItem in ProjectTreeItems)
-            {
-                CollectDocumentsFromTree(rootItem, project.Documents);
-            }
-        }
-
-        return project;
-    }
-
-    private void CollectDocumentsFromTree(ProjectTreeItemViewModel item, List<Document> documents)
-    {
-        if (item.Document != null)
-        {
-            // Update content if this is the selected item
-            if (item == SelectedProjectItem)
-            {
-                item.Document.Content = EditorText;
-            }
-            
-            // Add document if not already in the list
-            if (!documents.Any(d => d.Id == item.Document.Id))
-            {
-                documents.Add(item.Document);
-            }
-        }
-
-        foreach (var child in item.Children)
-        {
-            CollectDocumentsFromTree(child, documents);
-        }
+        return ProjectBuilder.BuildProjectFromTree(
+            _currentProject,
+            rootItem,
+            CurrentProjectPath,
+            SelectedProjectItem?.Document,
+            EditorText);
     }
 
     private string GetIconForDocumentType(DocumentType type)
     {
-        return type switch
-        {
-            DocumentType.Chapter => "📄",
-            DocumentType.Scene => "🎬",
-            DocumentType.Note => "📝",
-            DocumentType.Research => "🔬",
-            DocumentType.Character => "👤",
-            DocumentType.Location => "📍",
-            _ => "📄"
-        };
+        return ProjectTreeBuilder.GetIconForDocumentType(type);
     }
 
     [RelayCommand]
@@ -1527,26 +881,21 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private ProjectTreeItemViewModel? FindTreeItemByDocument(ProjectTreeItemViewModel item, Document document)
     {
-        Console.WriteLine($"[MainWindowViewModel] FindTreeItemByDocument: item.Name='{item.Name}', item.Document?.Id='{item.Document?.Id}', document.Id='{document.Id}', document.Title='{document.Title}'");
         
         if (item.Document?.Id == document.Id)
         {
-            Console.WriteLine($"[MainWindowViewModel]   Match found! Returning item: Name='{item.Name}'");
             return item;
         }
 
-        Console.WriteLine($"[MainWindowViewModel]   Checking {item.Children.Count} children");
         foreach (var child in item.Children)
         {
             var found = FindTreeItemByDocument(child, document);
             if (found != null)
             {
-                Console.WriteLine($"[MainWindowViewModel]   Found in child, returning");
                 return found;
             }
         }
 
-        Console.WriteLine($"[MainWindowViewModel]   Not found in this branch");
         return null;
     }
 
@@ -2915,56 +2264,33 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void NavigateToDocument(string documentId)
     {
-        Console.WriteLine($"[MainWindowViewModel] NavigateToDocument called with documentId: '{documentId}'");
-        Console.WriteLine($"[MainWindowViewModel]   CurrentProject is null: {_currentProject == null}");
         
         if (_currentProject == null)
         {
-            Console.WriteLine($"[MainWindowViewModel]   Returning early: CurrentProject is null");
             return;
         }
 
-        Console.WriteLine($"[MainWindowViewModel]   CurrentProject.Documents count: {_currentProject.Documents.Count}");
-        Console.WriteLine($"[MainWindowViewModel]   Searching for document with Id: '{documentId}'");
-        
         var document = _currentProject.Documents.FirstOrDefault(d => d.Id == documentId);
         
         if (document == null)
         {
-            Console.WriteLine($"[MainWindowViewModel]   Document not found with Id: '{documentId}'");
-            Console.WriteLine($"[MainWindowViewModel]   Available document IDs:");
-            foreach (var doc in _currentProject.Documents.Take(10))
-            {
-                Console.WriteLine($"[MainWindowViewModel]     - Id: '{doc.Id}', Title: '{doc.Title}'");
-            }
             return;
         }
-
-        Console.WriteLine($"[MainWindowViewModel]   Found document: Title='{document.Title}', Id='{document.Id}'");
-        Console.WriteLine($"[MainWindowViewModel]   ProjectTreeItems count: {ProjectTreeItems.Count}");
 
         // Find the corresponding tree item
         ProjectTreeItemViewModel? targetItem = null;
         foreach (var rootItem in ProjectTreeItems)
         {
-            Console.WriteLine($"[MainWindowViewModel]   Searching in root item: Name='{rootItem.Name}'");
             targetItem = FindTreeItemByDocument(rootItem, document);
             if (targetItem != null)
             {
-                Console.WriteLine($"[MainWindowViewModel]   Found target item: Name='{targetItem.Name}'");
                 break;
             }
         }
 
         if (targetItem != null)
         {
-            Console.WriteLine($"[MainWindowViewModel]   Setting SelectedProjectItem to target item");
             SelectedProjectItem = targetItem;
-            Console.WriteLine($"[MainWindowViewModel]   SelectedProjectItem set, current value: Name='{SelectedProjectItem?.Name}'");
-        }
-        else
-        {
-            Console.WriteLine($"[MainWindowViewModel]   Target item not found in tree");
         }
     }
 }

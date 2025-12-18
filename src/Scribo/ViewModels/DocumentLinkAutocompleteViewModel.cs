@@ -106,7 +106,8 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     {
         if (SelectedIndex >= 0 && SelectedIndex < Suggestions.Count)
         {
-            return Suggestions[SelectedIndex];
+            var doc = Suggestions[SelectedIndex];
+            return doc;
         }
         return null;
     }
@@ -115,6 +116,7 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     {
         if (Suggestions.Count > 0)
         {
+            var oldIndex = SelectedIndex;
             SelectedIndex = (SelectedIndex + 1) % Suggestions.Count;
         }
     }
@@ -123,6 +125,7 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     {
         if (Suggestions.Count > 0)
         {
+            var oldIndex = SelectedIndex;
             SelectedIndex = SelectedIndex <= 0 ? Suggestions.Count - 1 : SelectedIndex - 1;
         }
     }

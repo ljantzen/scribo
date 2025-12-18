@@ -1,6 +1,6 @@
 # TODO  v1.0
 
-- [ ] Fix DocumentLink 
+- [x] Fix DocumentLink 
 - [x] Make recent project selectable with enter key
 - [x] show keyboard shortcuts in menu items
 - [ ] Dark/Light themes

@@ -13,6 +13,7 @@ using Avalonia.Layout;
 using Scribo.Models;
 using Scribo.Services;
 using Scribo.ViewModels;
+using Scribo.Views.Handlers;
 
 namespace Scribo.Views;
 
@@ -28,8 +29,16 @@ public partial class MainWindow : Window
             Console.WriteLine($"[DEBUG] {message}");
         }
     }
+    
     private readonly PluginManager _pluginManager;
     private readonly PluginContext _pluginContext;
+    
+    // Handlers
+    private readonly DocumentLinkAutocompleteHandler _autocompleteHandler;
+    private readonly FindReplaceHandler _findReplaceHandler;
+    private readonly MarkdownBlockNavigationHandler _markdownNavigationHandler;
+    private readonly KeyboardShortcutHandler _keyboardShortcutHandler;
+    private readonly KeyboardEventHandler _keyboardEventHandler;
 
     public MainWindow()
     {
@@ -48,117 +57,43 @@ public partial class MainWindow : Window
         viewModel.SetParentWindow(this);
         DataContext = viewModel;
         
+        // Initialize handlers
+        _autocompleteHandler = new DocumentLinkAutocompleteHandler(this, DebugTrace);
+        _findReplaceHandler = new FindReplaceHandler(this);
+        _markdownNavigationHandler = new MarkdownBlockNavigationHandler(this);
+        _keyboardShortcutHandler = new KeyboardShortcutHandler(this);
+        _keyboardEventHandler = new KeyboardEventHandler(this, DebugTrace, _autocompleteHandler, FocusRenameTextBox);
+        
         // Setup drag and drop handlers
         AddHandler(DragDrop.DropEvent, OnTreeViewDrop);
         AddHandler(DragDrop.DragOverEvent, OnTreeViewDragOver);
         
-        // Setup keyboard shortcuts
-        KeyDown += OnWindowKeyDown;
-        
-        // Also add tunnel handler for Up/Down keys to intercept before TextBox consumes them
-        AddHandler(KeyDownEvent, OnWindowKeyDownTunnel, RoutingStrategies.Tunnel);
-        
-        // Load and apply keyboard shortcuts from settings
-        LoadKeyboardShortcuts();
-        
-        // Setup find/replace
-        viewModel.SelectMatchRequested += OnSelectMatch;
-        
-        // Setup document link autocomplete
-        SetupDocumentLinkAutocomplete();
-        
-        // Setup markdown block navigation
-        SetupMarkdownBlockNavigation();
+        // Setup handlers
+        _keyboardEventHandler.Setup();
+        _keyboardShortcutHandler.LoadKeyboardShortcuts();
+        _findReplaceHandler.Setup();
+        _autocompleteHandler.Setup();
+        _markdownNavigationHandler.Setup();
     }
     
-    private void SetupMarkdownBlockNavigation()
+    public void ReloadKeyboardShortcuts()
     {
-        // Try to find the ItemsControl and attach to its events
-        var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
-        if (itemsControl != null)
-        {
-            itemsControl.ContainerPrepared += OnMarkdownBlockContainerPrepared;
-            
-            // Also try to attach handlers to existing items
-            Dispatcher.UIThread.Post(() =>
-            {
-                AttachHandlersToExistingMarkdownBlocks();
-            }, DispatcherPriority.Loaded);
-        }
+        _keyboardShortcutHandler.LoadKeyboardShortcuts();
     }
     
-    private void AttachHandlersToExistingMarkdownBlocks()
+    public void OnNavigateToDocument(string documentId)
     {
-        var itemsControl = this.FindControl<ItemsControl>("markdownItemsControl");
-        if (itemsControl != null)
-        {
-            var controls = itemsControl.GetVisualDescendants().OfType<MarkdownBlockControl>().ToList();
-            
-            foreach (var control in controls)
-            {
-                control.NavigateToDocumentRequested += OnNavigateToDocument;
-            }
-        }
+        _markdownNavigationHandler.OnNavigateToDocument(documentId);
     }
-
-    private void SetupDocumentLinkAutocomplete()
-    {
-        var textBox = this.FindControl<TextBox>("sourceTextBox");
-        var popup = this.FindControl<Popup>("autocompletePopup");
-        var autocompleteControl = popup?.Child as DocumentLinkAutocompletePopup;
+    
+    // Autocomplete, keyboard shortcuts, find/replace, and markdown navigation methods 
+    // have been moved to handler classes in the Handlers/ directory:
+    // - DocumentLinkAutocompleteHandler
+    // - KeyboardShortcutHandler  
+    // - KeyboardEventHandler
+    // - FindReplaceHandler
+    // - MarkdownBlockNavigationHandler
         
-        if (textBox != null && popup != null && autocompleteControl != null)
-        {
-            // Handle keyboard events for autocomplete navigation
-            textBox.KeyDown += OnEditorKeyDown;
-            
-            // Also attach to GotFocus to dynamically control AcceptsTab
-            textBox.GotFocus += (s, e) =>
-            {
-                UpdateAcceptsTabForAutocomplete(textBox);
-            };
-            
-            // Attach TextChanged handler (in addition to XAML binding to ensure it's called)
-            textBox.TextChanged += OnEditorTextChanged;
-            
-            // Handle item selection from popup
-            autocompleteControl.InsertDocumentRequested += OnAutocompleteItemSelected;
-            
-            // Handle popup visibility changes
-            if (DataContext is MainWindowViewModel vm)
-            {
-                vm.DocumentLinkAutocompleteViewModel.PropertyChanged += (s, e) =>
-                {
-                    if (e.PropertyName == nameof(DocumentLinkAutocompleteViewModel.IsVisible))
-                    {
-                        if (vm.DocumentLinkAutocompleteViewModel.IsVisible)
-                        {
-                            UpdateAutocompletePopupPosition();
-                        }
-                        // Update AcceptsTab when autocomplete visibility changes
-                        UpdateAcceptsTabForAutocomplete(textBox);
-                    }
-                };
-            }
-            
-            // Close popup when clicking outside
-            PointerPressed += (s, e) =>
-            {
-                if (popup.IsOpen && autocompleteControl != null)
-                {
-                    var hitTest = e.Source as Control;
-                    if (hitTest != null && !autocompleteControl.IsPointerOver && hitTest != textBox)
-                    {
-                        if (DataContext is MainWindowViewModel viewModel)
-                        {
-                            viewModel.DocumentLinkAutocompleteViewModel.Hide();
-                        }
-                    }
-                }
-            };
-        }
-    }
-
     private void OnAutocompleteItemSelected(Document document)
     {
         var textBox = this.FindControl<TextBox>("sourceTextBox");
@@ -321,23 +256,19 @@ public partial class MainWindow : Window
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
-        DebugTrace($"OnEditorKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
         
         if (sender is not TextBox textBox || DataContext is not MainWindowViewModel vm)
         {
-            DebugTrace("  Early return: sender is not TextBox or DataContext is not MainWindowViewModel");
             return;
         }
 
         // Only handle autocomplete in source mode
         if (!vm.IsSourceMode)
         {
-            DebugTrace("  Early return: not in source mode");
             return;
         }
 
         var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
-        DebugTrace($"  autocompleteVm.IsVisible: {autocompleteVm.IsVisible}, Suggestions.Count: {autocompleteVm.Suggestions.Count}");
         
         // Handle Tab key even when popup is not visible, to check if we're in a [[...]] block
         // This allows Tab to complete autocomplete if popup should be visible
@@ -387,49 +318,36 @@ public partial class MainWindow : Window
         // This MUST happen before any other key processing
         if (autocompleteVm.IsVisible)
         {
-            DebugTrace($"  Editor: Autocomplete is visible, checking key: {e.Key}");
             switch (e.Key)
             {
                 case Key.Down:
-                    DebugTrace("  Editor: Handling Down key for autocomplete navigation");
                     e.Handled = true;
                     autocompleteVm.SelectNext();
-                    DebugTrace($"  Editor: Down handled, new SelectedIndex: {autocompleteVm.SelectedIndex}");
                     return;
                     
                 case Key.Up:
-                    DebugTrace("  Editor: Handling Up key for autocomplete navigation");
                     e.Handled = true;
                     autocompleteVm.SelectPrevious();
-                    DebugTrace($"  Editor: Up handled, new SelectedIndex: {autocompleteVm.SelectedIndex}");
                     return;
                     
                 case Key.Enter:
-                    DebugTrace("  Editor: Handling Enter key for autocomplete selection");
                     e.Handled = true;
                     InsertSelectedDocumentLink(textBox, vm);
-                    DebugTrace("  Editor: Enter handled, InsertSelectedDocumentLink called");
                     return;
                     
                 case Key.Tab:
-                    DebugTrace("  Editor: Handling Tab key for autocomplete selection");
                     e.Handled = true;
                     InsertSelectedDocumentLink(textBox, vm);
-                    DebugTrace("  Editor: Tab handled, InsertSelectedDocumentLink called");
                     return;
                     
                 case Key.Escape:
-                    DebugTrace("  Editor: Handling Escape key to hide autocomplete");
                     e.Handled = true;
                     autocompleteVm.Hide();
-                    DebugTrace("  Editor: Escape handled, Hide called");
                     return;
             }
-            DebugTrace($"  Editor: Key {e.Key} not matched in autocomplete switch");
         }
         else
         {
-            DebugTrace($"  Editor: Autocomplete is not visible (IsVisible={autocompleteVm.IsVisible}), skipping autocomplete key handling");
         }
     }
 
@@ -565,7 +483,7 @@ public partial class MainWindow : Window
         }
         
         // Use Bottom placement mode (which we know works for vertical) and calculate vertical offset from bottom
-        popup.PlacementMode = PlacementMode.Bottom;
+        popup.Placement = PlacementMode.Bottom;
         var verticalOffsetFromTop = verticalPositionFromTop + lineHeight + 2;
         var textBoxHeight = textBox.Bounds.Height;
         
@@ -653,14 +571,6 @@ public partial class MainWindow : Window
         }
     }
 
-    public void OnNavigateToDocument(string documentId)
-    {
-        if (DataContext is MainWindowViewModel vm)
-        {
-            vm.NavigateToDocument(documentId);
-        }
-    }
-
     private void OnEditorTextBoxGotFocus(object? sender, Avalonia.Input.GotFocusEventArgs e)
     {
         // If we're selecting a match and find bar is visible, prevent editor from getting focus
@@ -678,11 +588,6 @@ public partial class MainWindow : Window
                 }, DispatcherPriority.Input);
             }
         }
-    }
-    
-    public void ReloadKeyboardShortcuts()
-    {
-        LoadKeyboardShortcuts();
     }
     
     private void LoadKeyboardShortcuts()
@@ -848,37 +753,42 @@ public partial class MainWindow : Window
                 var autocompleteVm = vm.DocumentLinkAutocompleteViewModel;
                 if (autocompleteVm.IsVisible)
                 {
-                    DebugTrace($"OnWindowKeyDownTunnel: Intercepting {e.Key} for autocomplete");
                     e.Handled = true;
                     
                     if (e.Key == Key.Down)
                     {
+                        var oldIndex = autocompleteVm.SelectedIndex;
                         autocompleteVm.SelectNext();
-                        DebugTrace($"  Tunnel: Down handled, SelectedIndex: {autocompleteVm.SelectedIndex}");
                     }
                     else if (e.Key == Key.Up)
                     {
+                        var oldIndex = autocompleteVm.SelectedIndex;
                         autocompleteVm.SelectPrevious();
-                        DebugTrace($"  Tunnel: Up handled, SelectedIndex: {autocompleteVm.SelectedIndex}");
                     }
                     else if (e.Key == Key.Enter)
                     {
                         InsertSelectedDocumentLink(textBox, vm);
-                        DebugTrace("  Tunnel: Enter handled, InsertSelectedDocumentLink called");
                     }
                     else if (e.Key == Key.Escape)
                     {
                         autocompleteVm.Hide();
-                        DebugTrace("  Tunnel: Escape handled, Hide called");
                     }
                 }
+                else
+                {
+                }
             }
+            else
+            {
+            }
+        }
+        else
+        {
         }
     }
     
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        DebugTrace($"OnWindowKeyDown: Key={e.Key}, Handled={e.Handled}, KeyModifiers={e.KeyModifiers}");
         
         // Handle other shortcuts (menu navigation, etc.)
         
@@ -1005,6 +915,32 @@ public partial class MainWindow : Window
         {
             var settingsService = new ApplicationSettingsService();
             var settings = settingsService.LoadSettings();
+            
+            // Handle ToggleViewMode shortcut (configurable, default Ctrl+P)
+            string toggleViewModeShortcut = settings.KeyboardShortcuts.ContainsKey("ToggleViewMode") 
+                ? settings.KeyboardShortcuts["ToggleViewMode"] 
+                : "Ctrl+P";
+            
+            try
+            {
+                var toggleViewModeGesture = KeyGesture.Parse(toggleViewModeShortcut);
+                if (toggleViewModeGesture.Matches(e))
+                {
+                    e.Handled = true;
+                    viewModelForShortcuts.ToggleViewModeCommand.Execute(null);
+                    return;
+                }
+            }
+            catch
+            {
+                // Fallback to Ctrl+P if parsing fails
+                if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+                {
+                    e.Handled = true;
+                    viewModelForShortcuts.ToggleViewModeCommand.Execute(null);
+                    return;
+                }
+            }
             
             // Handle local find shortcut (Ctrl+F)
             if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
