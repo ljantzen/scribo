@@ -94,7 +94,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private Project? _currentProject;
     private DispatcherTimer? _idleTimer;
+    private DispatcherTimer? _autoSaveTimer;
     private DateTime _lastActivityTime = DateTime.Now;
+    private DateTime _lastSaveTime = DateTime.Now;
     private const int IdleTimeoutSeconds = 2; // Calculate statistics after 2 seconds of inactivity
 
     public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
@@ -111,6 +113,7 @@ public partial class MainWindowViewModel : ViewModelBase
         InitializeProjectTree();
         UpdateRecentProjectsList();
         InitializeIdleStatisticsTimer();
+        InitializeAutoSaveTimer();
         InitializeFindReplace();
         InitializeDocumentLinkAutocomplete();
         
@@ -206,6 +209,77 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private void InitializeAutoSaveTimer()
+    {
+        _autoSaveTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(30) // Check every 30 seconds
+        };
+        _autoSaveTimer.Tick += OnAutoSaveTimerTick;
+        _autoSaveTimer.Start();
+    }
+
+    private void OnAutoSaveTimerTick(object? sender, EventArgs e)
+    {
+        try
+        {
+            var settings = _applicationSettingsService.LoadSettings();
+            
+            // Only auto-save if enabled
+            if (!settings.AutoSave)
+            {
+                return;
+            }
+
+            // Only save if there's a current project with unsaved changes and a file path
+            if (_currentProject == null || !HasUnsavedChanges || string.IsNullOrEmpty(CurrentProjectPath))
+            {
+                return;
+            }
+
+            // Check if we've been idle long enough
+            var timeSinceLastActivity = DateTime.Now - _lastActivityTime;
+            var autoSaveIntervalSeconds = settings.AutoSaveIntervalMinutes * 60;
+            
+            if (timeSinceLastActivity.TotalSeconds >= autoSaveIntervalSeconds)
+            {
+                // Check if enough time has passed since last save
+                var timeSinceLastSave = DateTime.Now - _lastSaveTime;
+                if (timeSinceLastSave.TotalSeconds >= autoSaveIntervalSeconds)
+                {
+                    Console.WriteLine($"[AutoSave] Auto-saving project after {timeSinceLastActivity.TotalSeconds:F1} seconds of idle time");
+                    PerformAutoSave();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AutoSave] Error in auto-save timer: {ex.Message}");
+        }
+    }
+
+    private void PerformAutoSave()
+    {
+        if (_currentProject == null || string.IsNullOrEmpty(CurrentProjectPath))
+            return;
+
+        try
+        {
+            // Build project from current state to ensure editor content is saved
+            var project = BuildProjectFromCurrentState();
+            _projectService.SaveProject(project, CurrentProjectPath);
+            _currentProject = project;
+            _lastSaveTime = DateTime.Now;
+            HasUnsavedChanges = false;
+            Console.WriteLine($"[AutoSave] Project auto-saved successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AutoSave] Error auto-saving project: {ex.Message}");
+            Console.WriteLine($"[AutoSave] Stack trace: {ex.StackTrace}");
+        }
+    }
+
     private void RecordActivity()
     {
         _lastActivityTime = DateTime.Now;
@@ -243,6 +317,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _idleTimer?.Stop();
         _idleTimer = null;
+        _autoSaveTimer?.Stop();
+        _autoSaveTimer = null;
     }
 
     public void SetParentWindow(Window window)
@@ -309,6 +385,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentProjectPath = filePath;
                 EditorText = string.Empty;
                 CurrentFilePath = string.Empty;
+                _lastSaveTime = DateTime.Now; // Set save time when loading project
                 LoadProjectIntoTree(project);
                 HasUnsavedChanges = false;
                 
@@ -347,6 +424,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var project = BuildProjectFromCurrentState();
             _projectService.SaveProject(project, CurrentProjectPath);
             _currentProject = project;
+            _lastSaveTime = DateTime.Now;
             HasUnsavedChanges = false;
             
             // Add to MRU list
@@ -378,6 +456,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 _projectService.SaveProject(project, filePath);
                 _currentProject = project;
                 CurrentProjectPath = filePath;
+                _lastSaveTime = DateTime.Now;
                 HasUnsavedChanges = false;
                 
                 // Add to MRU list
@@ -940,6 +1019,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     try
                     {
                         _projectService.SaveProject(_currentProject, CurrentProjectPath);
+                        _lastSaveTime = DateTime.Now;
                         HasUnsavedChanges = false;
                     }
                     catch (Exception ex)
@@ -2688,6 +2768,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CurrentProjectPath = filePath;
             EditorText = string.Empty;
             CurrentFilePath = string.Empty;
+            _lastSaveTime = DateTime.Now; // Set save time when loading project
             LoadProjectIntoTree(project);
             HasUnsavedChanges = false;
             

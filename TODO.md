@@ -6,9 +6,9 @@
 - [ ] Dark/Light themes
 - [ ] Finjustere search 
 - [ ] Tags 
-- [ ] Søppelbøtte 
+- [x] Søppelbøtte 
 - [ ] Arkiv
-- [ ] Autosave 
+- [x] Autosave 
 - [ ] Backup 
 - [ ] App ikon 
 - [ ] Session stats 
