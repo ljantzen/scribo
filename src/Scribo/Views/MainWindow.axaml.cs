@@ -1234,19 +1234,8 @@ public partial class MainWindow : Window
     private void FocusRenameTextBox()
     {
         // Find the TextBox that is currently visible (IsRenaming = true)
-        // Try both TreeViews - left and right
-        var treeViewLeft = this.FindControl<TreeView>("projectTreeViewLeft");
-        var treeViewRight = this.FindControl<TreeView>("projectTreeViewRight");
-        
-        TreeView? treeView = null;
-        if (treeViewLeft?.IsVisible == true)
-        {
-            treeView = treeViewLeft;
-        }
-        else if (treeViewRight?.IsVisible == true)
-        {
-            treeView = treeViewRight;
-        }
+        // Find the project tree TreeView
+        var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
         
         if (treeView == null)
         {

@@ -44,11 +44,6 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private ProjectTreeItemViewModel? selectedProjectItem;
 
-    [ObservableProperty]
-    private bool isProjectTreeOnLeft = true;
-
-    [ObservableProperty]
-    private bool isProjectTreeOnRight = false;
 
     [ObservableProperty]
     private string currentFilePath = string.Empty;
@@ -748,21 +743,6 @@ public partial class MainWindowViewModel : ViewModelBase
         // TODO: Implement paste
     }
 
-    [RelayCommand]
-    private void ToggleProjectTreeSide()
-    {
-        // Toggle between left and right
-        if (IsProjectTreeOnLeft)
-        {
-            IsProjectTreeOnLeft = false;
-            IsProjectTreeOnRight = true;
-        }
-        else
-        {
-            IsProjectTreeOnLeft = true;
-            IsProjectTreeOnRight = false;
-        }
-    }
 
     [RelayCommand]
     private void ShowWordCount()
@@ -1942,9 +1922,20 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         // Ask for confirmation
-        var confirmed = ShowDeleteConfirmationDialog(item);
-        if (!confirmed)
+        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] DeleteItem called for item: {item?.Name}");
+        if (item == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Item is null, cannot show confirmation dialog");
             return;
+        }
+        var confirmed = ShowDeleteConfirmationDialog(item);
+        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] ShowDeleteConfirmationDialog returned: {confirmed}");
+        if (!confirmed)
+        {
+            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] User cancelled deletion");
+            return;
+        }
+        System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] User confirmed deletion, proceeding...");
 
         // Find the parent folder
         ProjectTreeItemViewModel? parentFolder = null;
@@ -2160,24 +2151,48 @@ public partial class MainWindowViewModel : ViewModelBase
             message = $"Are you sure you want to delete \"{item.Name}\"?\n\nThis action cannot be undone.";
         }
 
-        // Create confirmation dialog using XAML-based window
-        var dialog = new ConfirmDeleteWindow(message)
+        // Create confirmation dialog using a simple window with UserControl content
+        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Creating ConfirmDeleteDialog with message: '{message}'");
+        
+        var dialogContent = new ConfirmDeleteDialog(message);
+        var dialogWindow = new Window
         {
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
+            Content = dialogContent,
+            Title = "Confirm Delete",
+            Width = 450,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            ShowInTaskbar = false,
+            Background = new SolidColorBrush(Colors.White),
+            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light
         };
         
+        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Dialog created, ParentWindow is null: {_parentWindow == null}");
+        
         // Show dialog synchronously - ShowDialog blocks until dialog closes
+        bool dialogResult = false;
         if (_parentWindow != null)
         {
-            dialog.ShowDialog(_parentWindow);
+            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Showing dialog with ShowDialog");
+            var result = dialogWindow.ShowDialog<bool>(_parentWindow).GetAwaiter().GetResult();
+            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] ShowDialog returned: {result}");
+            dialogResult = result;
         }
         else
         {
-            dialog.Show();
+            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Showing dialog with Show (no parent)");
+            dialogWindow.Show();
+            // Wait for window to close
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+            dialogWindow.Closed += (s, e) => tcs.SetResult(dialogContent.Result);
+            dialogResult = tcs.Task.GetAwaiter().GetResult();
         }
+        
+        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Dialog closed, Result: {dialogResult}");
 
         // Return the result
-        return dialog.Result;
+        return dialogResult;
     }
 
     [RelayCommand]

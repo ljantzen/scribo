@@ -8,29 +8,104 @@
         Width="450" Height="200"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False"
+        RequestedThemeVariant="Light"
+        Background="White"
+        TransparencyLevelHint="None">
+    <Window.Styles>
+        <Style Selector="Window">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window /template/ ContentPresenter">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window /template/ Panel">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window Grid">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window ScrollViewer">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window Border">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window TextBlock">
+            <Setter Property="Foreground" Value="Black"/>
+        </Style>
+        <Style Selector="Window Panel">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+        <Style Selector="Window /template/ Border">
+            <Setter Property="Background" Value="White"/>
+        </Style>
+    </Window.Styles>
     
-    <Border Padding="20" Background="White">
-        <DockPanel>
+    <Window.Resources>
+        <SolidColorBrush x:Key="DialogBackgroundBrush" Color="White"/>
+        <SolidColorBrush x:Key="DialogForegroundBrush" Color="Black"/>
+        <!-- Override FluentTheme resources -->
+        <SolidColorBrush x:Key="SystemControlBackgroundBaseLowBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlBackgroundAltMediumBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlBackgroundAltLowBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlBackgroundBaseHighBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlBackgroundChromeMediumBrush" Color="White"/>
+        <SolidColorBrush x:Key="SystemControlForegroundBaseHighBrush" Color="Black"/>
+        <SolidColorBrush x:Key="SystemControlForegroundBaseMediumBrush" Color="Black"/>
+        <SolidColorBrush x:Key="SystemControlForegroundBaseLowBrush" Color="Black"/>
+    </Window.Resources>
+    
+    <Grid Background="White" x:Name="MainGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <ScrollViewer Grid.Row="0" 
+                     x:Name="MessageScrollViewer"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Disabled"
+                     Padding="20"
+                     Background="White">
             <TextBlock x:Name="MessageTextBlock"
+                      Text="Are you sure you want to delete this item?"
                       TextWrapping="Wrap"
-                      Margin="0,0,0,20"
-                      DockPanel.Dock="Top"/>
-            
+                      VerticalAlignment="Top"
+                      HorizontalAlignment="Stretch"
+                      Foreground="Black"
+                      Background="Transparent"/>
+        </ScrollViewer>
+        
+        <Border Grid.Row="1"
+                x:Name="ButtonBorder"
+                Background="White"
+                BorderBrush="#FFE0E0E0"
+                BorderThickness="0,1,0,0"
+                Padding="20">
             <StackPanel Orientation="Horizontal" 
                        HorizontalAlignment="Right" 
-                       Spacing="10"
-                       DockPanel.Dock="Bottom">
+                       VerticalAlignment="Center"
+                       Spacing="10">
                 <Button x:Name="CancelButton"
                        Content="Cancel"
-                       Width="80"
+                       MinWidth="80"
+                       MinHeight="30"
                        IsCancel="True"
+                       Background="#FF0078D4"
+                       Foreground="White"
+                       BorderBrush="#FF005A9E"
                        Click="OnCancelClick"/>
                 <Button x:Name="DeleteButton"
                        Content="Delete"
-                       Width="80"
+                       MinWidth="80"
+                       MinHeight="30"
+                       Background="#FFD13438"
+                       Foreground="White"
+                       BorderBrush="#FFB02E33"
                        Click="OnDeleteClick"/>
             </StackPanel>
-        </DockPanel>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

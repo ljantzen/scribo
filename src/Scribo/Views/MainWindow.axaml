@@ -62,11 +62,6 @@
                 <MenuItem Header="_Toggle View Mode" 
                           Command="{Binding ToggleViewModeCommand}"
                           x:Name="toggleViewModeMenuItem"/>
-                <Separator/>
-                <MenuItem Header="_Project Tree Left" 
-                          Command="{Binding ToggleProjectTreeSideCommand}"/>
-                <MenuItem Header="_Project Tree Right" 
-                          Command="{Binding ToggleProjectTreeSideCommand}"/>
             </MenuItem>
             <MenuItem Header="_Tools">
                 <MenuItem Header="_Search" Command="{Binding ShowSearchCommand}" x:Name="searchMenuItem"/>
@@ -88,16 +83,12 @@
             <!-- Content Grid -->
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="{Binding IsProjectTreeOnLeft, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='250,0*'}" MinWidth="{Binding IsProjectTreeOnLeft, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='150,0'}"/>
-                <ColumnDefinition Width="{Binding IsProjectTreeOnLeft, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='5,0*'}"/>
+                <ColumnDefinition Width="250" MinWidth="150"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="{Binding IsProjectTreeOnRight, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='5,0*'}"/>
-                <ColumnDefinition Width="{Binding IsProjectTreeOnRight, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='250,0*'}" MinWidth="{Binding IsProjectTreeOnRight, Converter={StaticResource BooleanToGridLengthConverter}, ConverterParameter='150,0'}"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Project Tree (Left Side) -->
+            <!-- Project Tree -->
             <Border Grid.Row="0" Grid.Column="0" 
-                    IsVisible="{Binding IsProjectTreeOnLeft}"
                     BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                     BorderThickness="0,0,1,0">
                 <DockPanel>
@@ -170,15 +161,8 @@
                 </DockPanel>
             </Border>
 
-            <!-- Splitter for left side -->
-            <GridSplitter Grid.Row="0" Grid.Column="1" 
-                          Width="5" 
-                          HorizontalAlignment="Stretch"
-                          IsVisible="{Binding IsProjectTreeOnLeft}"
-                          ResizeDirection="Columns"/>
-
             <!-- Text Editor / Preview -->
-            <Grid Grid.Row="0" Grid.Column="2">
+            <Grid Grid.Row="0" Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -241,87 +225,6 @@
                 </ScrollViewer>
             </Grid>
 
-            <!-- Splitter for right side -->
-            <GridSplitter Grid.Row="0" Grid.Column="3" 
-                          Width="5" 
-                          HorizontalAlignment="Stretch"
-                          IsVisible="{Binding IsProjectTreeOnRight}"
-                          ResizeDirection="Columns"/>
-
-            <!-- Project Tree (Right Side) -->
-            <Border Grid.Row="0" Grid.Column="4" 
-                    IsVisible="{Binding IsProjectTreeOnRight}"
-                    BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                    BorderThickness="1,0,0,0">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" 
-                               Text="Project Structure" 
-                               FontWeight="Bold" 
-                               Margin="5"
-                               Padding="5"/>
-                    <TreeView x:Name="projectTreeViewRight"
-                              ItemsSource="{Binding ProjectTreeItems}"
-                              SelectedItem="{Binding SelectedProjectItem}">
-                        <TreeView.ItemTemplate>
-                            <TreeDataTemplate ItemsSource="{Binding Children}">
-                                <Border Background="Transparent"
-                                       DragDrop.AllowDrop="True"
-                                       PointerPressed="OnTreeItemPointerPressed"
-                                       PointerMoved="OnTreeItemPointerMoved"
-                                       PointerReleased="OnTreeItemPointerReleased">
-                                    <Border.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="Project Properties" 
-                                                     IsVisible="{Binding IsRoot}"
-                                                     Click="OnProjectPropertiesClick"/>
-                                            <MenuItem Header="Add Chapter" 
-                                                     IsVisible="{Binding CanContainChapters}"
-                                                     Click="OnAddChapterClick"/>
-                                            <MenuItem Header="Rename" 
-                                                     IsVisible="{Binding CanRename}"
-                                                     Click="OnRenameClick"/>
-                                            <MenuItem Header="Delete" 
-                                                     IsVisible="{Binding CanDelete}"
-                                                     Click="OnDeleteClick"/>
-                                            <MenuItem Header="Create scene" 
-                                                     IsVisible="{Binding IsChapter}"
-                                                     Click="OnAddSceneClick"/>
-                                            <MenuItem Header="Add Character" 
-                                                     IsVisible="{Binding CanContainCharacters}"
-                                                     Click="OnAddCharacterClick"/>
-                                            <MenuItem Header="Add Location" 
-                                                     IsVisible="{Binding CanContainLocations}"
-                                                     Click="OnAddLocationClick"/>
-                                            <MenuItem Header="Add Note" 
-                                                     IsVisible="{Binding CanContainNotes}"
-                                                     Click="OnAddNoteClick"/>
-                                            <MenuItem Header="Create Subfolder" 
-                                                     IsVisible="{Binding CanCreateSubfolder}"
-                                                     Click="OnCreateSubfolderClick"/>
-                                            <Separator IsVisible="{Binding Document}"/>
-                                            <MenuItem Header="Move Up" 
-                                                     IsVisible="{Binding Document}"
-                                                     Click="OnMoveUpClick"/>
-                                            <MenuItem Header="Move Down" 
-                                                     IsVisible="{Binding Document}"
-                                                     Click="OnMoveDownClick"/>
-                                        </ContextMenu>
-                                    </Border.ContextMenu>
-                                    <StackPanel Orientation="Horizontal" Spacing="5">
-                                    <TextBlock Text="{Binding Icon}"/>
-                                    <TextBlock Text="{Binding Name}" IsVisible="{Binding !IsRenaming}"/>
-                                    <TextBox Text="{Binding RenameText, Mode=TwoWay}" 
-                                            IsVisible="{Binding IsRenaming}"
-                                            MinWidth="150"
-                                            LostFocus="OnRenameLostFocus"
-                                            KeyDown="OnRenameKeyDown"/>
-                                    </StackPanel>
-                                </Border>
-                            </TreeDataTemplate>
-                        </TreeView.ItemTemplate>
-                    </TreeView>
-                </DockPanel>
-            </Border>
             </Grid>
             
             <!-- Status Bar -->

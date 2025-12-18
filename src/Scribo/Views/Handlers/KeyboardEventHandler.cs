@@ -136,7 +136,7 @@ public class KeyboardEventHandler
                     return;
                 }
             }
-            catch (Exception ex)
+            catch
             {
                 // Fallback to Ctrl+P if parsing fails
                 if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
