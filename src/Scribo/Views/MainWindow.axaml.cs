@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -24,10 +26,7 @@ public partial class MainWindow : Window
     
     private void DebugTrace(string message)
     {
-        if (ENABLE_DEBUG_TRACING)
-        {
-            Console.WriteLine($"[DEBUG] {message}");
-        }
+        // Debug tracing disabled
     }
     
     private readonly PluginManager _pluginManager;
@@ -56,6 +55,9 @@ public partial class MainWindow : Window
         var viewModel = new MainWindowViewModel(_pluginManager);
         viewModel.SetParentWindow(this);
         DataContext = viewModel;
+        
+        // Subscribe to collection changes to expand root node when project is loaded
+        viewModel.ProjectTreeItems.CollectionChanged += OnProjectTreeItemsChanged;
         
         // Initialize handlers
         _autocompleteHandler = new DocumentLinkAutocompleteHandler(this, DebugTrace);
@@ -683,7 +685,6 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error parsing shortcut '{shortcutString}' for {actionName}: {ex.Message}");
                 shortcutString = null;
             }
         }
@@ -1816,5 +1817,79 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+    
+    private void OnProjectTreeItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null && e.NewItems.Count > 0)
+        {
+            // Expand root node after project tree is loaded
+            Dispatcher.UIThread.Post(() =>
+            {
+                ExpandRootNode();
+            }, DispatcherPriority.Loaded);
+        }
+        else if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            // When collection is cleared and then repopulated, wait a bit longer
+            Dispatcher.UIThread.Post(() =>
+            {
+                ExpandRootNode();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+    
+    private void ExpandRootNode()
+    {
+        var treeView = this.FindControl<TreeView>("projectTreeViewLeft");
+        if (treeView == null)
+        {
+            return;
+        }
+        
+        if (DataContext is not MainWindowViewModel vm)
+        {
+            return;
+        }
+        
+        var rootItem = vm.ProjectTreeItems.FirstOrDefault();
+        if (rootItem == null)
+        {
+            return;
+        }
+        
+        // Set IsExpanded on the view model first
+        rootItem.IsExpanded = true;
+        
+        // Try to find and expand the TreeViewItem container
+        // Retry a few times if not found immediately (UI might not be rendered yet)
+        int retryCount = 0;
+        const int maxRetries = 5;
+        
+        void TryExpandTreeViewItem()
+        {
+            var treeViewItem = treeView.GetVisualDescendants()
+                .OfType<TreeViewItem>()
+                .FirstOrDefault(item => item.DataContext == rootItem);
+            
+            if (treeViewItem != null)
+            {
+                treeViewItem.IsExpanded = true;
+            }
+            else
+            {
+                retryCount++;
+                if (retryCount < maxRetries)
+                {
+                    Dispatcher.UIThread.Post(TryExpandTreeViewItem, DispatcherPriority.Loaded);
+                }
+            }
+        }
+        
+        // Start trying to find the TreeViewItem
+        Dispatcher.UIThread.Post(TryExpandTreeViewItem, DispatcherPriority.Loaded);
+        
+        // Force a refresh
+        treeView.InvalidateVisual();
     }
 }

@@ -55,7 +55,6 @@ public class Document
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error reading content file {fullPath}: {ex.Message}");
                         return string.Empty;
                     }
                 }

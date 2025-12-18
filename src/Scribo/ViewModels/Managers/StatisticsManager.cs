@@ -63,7 +63,6 @@ public class StatisticsManager
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error calculating statistics: {ex.Message}");
             return null;
         }
     }

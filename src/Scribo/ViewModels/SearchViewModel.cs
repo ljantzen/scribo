@@ -134,7 +134,6 @@ public partial class SearchViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusText = $"Search error: {ex.Message}";
-            System.Diagnostics.Debug.WriteLine($"Search error: {ex.Message}");
         }
         finally
         {

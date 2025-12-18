@@ -109,7 +109,6 @@ public class ProjectService
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error moving file from {oldFullPath} to {newFullPath}: {ex.Message}");
                         // Fall through to normal save with new path
                     }
                 }

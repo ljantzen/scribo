@@ -111,7 +111,6 @@ public class KeyboardShortcutHandler
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error parsing shortcut '{shortcutString}' for {actionName}: {ex.Message}");
                 shortcutString = null;
             }
         }

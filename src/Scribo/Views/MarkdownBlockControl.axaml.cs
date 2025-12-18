@@ -17,10 +17,7 @@ public partial class MarkdownBlockControl : UserControl
     
     private void DebugTrace(string message)
     {
-        if (ENABLE_DEBUG_TRACING)
-        {
-            Console.WriteLine($"[MarkdownBlockControl] {message}");
-        }
+        // Debug tracing disabled
     }
     
     public MarkdownBlockControl()

@@ -251,6 +251,9 @@ public partial class MainWindowViewModel : ViewModelBase
         var root = ProjectTreeBuilder.CreateInitialProjectTree();
         ProjectTreeItems.Add(root);
         
+        // Expand the root node so Manuscript, Characters, Locations, etc. are visible
+        root.IsExpanded = true;
+        
         // Initialize statistics display
         UpdateStatisticsDisplay();
     }
@@ -316,8 +319,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error opening project: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
             // Clear the editor to show something went wrong
             EditorText = $"Error loading project: {ex.Message}";
             CurrentProjectPath = string.Empty;
@@ -347,7 +348,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error saving project: {ex.Message}");
         }
     }
 
@@ -380,7 +380,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error saving project: {ex.Message}");
         }
     }
 
@@ -412,7 +411,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error opening file: {ex.Message}");
         }
     }
 
@@ -433,7 +431,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error saving file: {ex.Message}");
         }
     }
 
@@ -464,7 +461,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             // TODO: Show error dialog
-            System.Diagnostics.Debug.WriteLine($"Error saving file: {ex.Message}");
         }
     }
 
@@ -653,7 +649,6 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading document content: {ex.Message}");
                 EditorText = $"Error loading document: {ex.Message}";
                 HasUnsavedChanges = false;
             }
@@ -678,6 +673,9 @@ public partial class MainWindowViewModel : ViewModelBase
         // Build project tree using ProjectTreeBuilder helper
         var root = ProjectTreeBuilder.BuildProjectTree(project, CurrentProjectPath);
         ProjectTreeItems.Add(root);
+        
+        // Expand the root node so Manuscript, Characters, Locations, etc. are visible
+        root.IsExpanded = true;
         
         // Update statistics display after loading project
         UpdateStatisticsDisplay();
@@ -911,7 +909,6 @@ public partial class MainWindowViewModel : ViewModelBase
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error saving project properties: {ex.Message}");
                     }
                 }
                 else
@@ -1922,20 +1919,15 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         // Ask for confirmation
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] DeleteItem called for item: {item?.Name}");
         if (item == null)
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Item is null, cannot show confirmation dialog");
             return;
         }
         var confirmed = ShowDeleteConfirmationDialog(item);
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] ShowDeleteConfirmationDialog returned: {confirmed}");
         if (!confirmed)
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] User cancelled deletion");
             return;
         }
-        System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] User confirmed deletion, proceeding...");
 
         // Find the parent folder
         ProjectTreeItemViewModel? parentFolder = null;
@@ -1980,7 +1972,6 @@ public partial class MainWindowViewModel : ViewModelBase
                             }
                             catch (Exception ex)
                             {
-                                System.Diagnostics.Debug.WriteLine($"Error deleting scene file {sceneFilePath}: {ex.Message}");
                             }
                         }
                     }
@@ -2015,14 +2006,12 @@ public partial class MainWindowViewModel : ViewModelBase
                             }
                             catch (Exception ex)
                             {
-                                System.Diagnostics.Debug.WriteLine($"Error deleting chapter folder {chapterFolder}: {ex.Message}");
                             }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error deleting document file {documentFilePath}: {ex.Message}");
                 }
             }
 
@@ -2063,7 +2052,6 @@ public partial class MainWindowViewModel : ViewModelBase
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"Error deleting document file {docFilePath}: {ex.Message}");
                         }
                     }
                 }
@@ -2152,8 +2140,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         // Create confirmation dialog using a simple window with UserControl content
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Creating ConfirmDeleteDialog with message: '{message}'");
-        
         var dialogContent = new ConfirmDeleteDialog(message);
         var dialogWindow = new Window
         {
@@ -2168,28 +2154,21 @@ public partial class MainWindowViewModel : ViewModelBase
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light
         };
         
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Dialog created, ParentWindow is null: {_parentWindow == null}");
-        
         // Show dialog synchronously - ShowDialog blocks until dialog closes
         bool dialogResult = false;
         if (_parentWindow != null)
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Showing dialog with ShowDialog");
             var result = dialogWindow.ShowDialog<bool>(_parentWindow).GetAwaiter().GetResult();
-            System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] ShowDialog returned: {result}");
             dialogResult = result;
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindowViewModel] Showing dialog with Show (no parent)");
             dialogWindow.Show();
             // Wait for window to close
             var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
             dialogWindow.Closed += (s, e) => tcs.SetResult(dialogContent.Result);
             dialogResult = tcs.Task.GetAwaiter().GetResult();
         }
-        
-        System.Diagnostics.Debug.WriteLine($"[MainWindowViewModel] Dialog closed, Result: {dialogResult}");
 
         // Return the result
         return dialogResult;
@@ -2231,7 +2210,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error opening recent project: {ex.Message}");
             // Remove invalid entry from MRU
             _mruService.RemoveProject(filePath);
             UpdateRecentProjectsList();

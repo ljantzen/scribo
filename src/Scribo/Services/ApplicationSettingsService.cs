@@ -58,7 +58,6 @@ public class ApplicationSettingsService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error loading settings: {ex.Message}");
             _cachedSettings = new ApplicationSettings
             {
                 KeyboardShortcuts = ApplicationSettings.GetDefaultShortcuts()
@@ -81,7 +80,6 @@ public class ApplicationSettingsService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error saving settings: {ex.Message}");
         }
     }
 

@@ -25,7 +25,6 @@ public class PluginContext : IPluginContext
     {
         // TODO: Implement menu item registration
         // This would need to be integrated with the main window's menu system
-        System.Diagnostics.Debug.WriteLine($"Register menu item: {menuPath}/{header}");
     }
 
     public T? GetService<T>() where T : class
@@ -36,14 +35,6 @@ public class PluginContext : IPluginContext
 
     public void Log(string message, LogLevel level = LogLevel.Info)
     {
-        var levelStr = level switch
-        {
-            LogLevel.Debug => "DEBUG",
-            LogLevel.Info => "INFO",
-            LogLevel.Warning => "WARN",
-            LogLevel.Error => "ERROR",
-            _ => "INFO"
-        };
-        System.Diagnostics.Debug.WriteLine($"[{levelStr}] {message}");
+        // Logging disabled
     }
 }

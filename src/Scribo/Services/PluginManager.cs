@@ -74,7 +74,6 @@ public class PluginManager : IDisposable
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load plugin {pluginFile}: {ex.Message}");
             }
         }
 
@@ -148,7 +147,6 @@ public class PluginManager : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error unloading plugin {pluginId}: {ex.Message}");
         }
 
         _loadedPlugins.Remove(pluginId);
@@ -237,7 +235,6 @@ public class PluginManager : IDisposable
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to delete plugin file: {ex.Message}");
             }
         }
 
@@ -294,7 +291,6 @@ public class PluginManager : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to load plugin configuration: {ex.Message}");
         }
     }
 
@@ -313,7 +309,6 @@ public class PluginManager : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to save plugin configuration: {ex.Message}");
         }
     }
 
