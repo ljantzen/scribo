@@ -131,6 +131,14 @@
                          IsChecked="{Binding ShowPageCountInStatusBar, Mode=TwoWay}"/>
             </StackPanel>
 
+            <!-- Startup Settings Section -->
+            <TextBlock Text="Startup Settings" FontSize="16" FontWeight="Bold" Margin="0,10,0,10"/>
+            
+            <StackPanel Spacing="5">
+                <CheckBox Content="Automatically load last opened project on startup"
+                         IsChecked="{Binding AutoLoadLastProject, Mode=TwoWay}"/>
+            </StackPanel>
+
             <!-- Theme Settings Section -->
             <TextBlock Text="Appearance" FontSize="16" FontWeight="Bold" Margin="0,10,0,10"/>
             

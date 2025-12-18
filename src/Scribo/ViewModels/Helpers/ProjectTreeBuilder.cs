@@ -47,6 +47,18 @@ public static class ProjectTreeBuilder
             Console.WriteLine($"[BuildProjectTree] Trashcan document: {doc.Title}, ContentFilePath: '{doc.ContentFilePath}'");
         }
 
+        // Double-check: ensure no Trashcan documents are in activeDocuments
+        // This is a safety check in case ContentFilePath wasn't set correctly
+        activeDocuments = activeDocuments.Where(d => 
+            string.IsNullOrEmpty(d.ContentFilePath) || 
+            !d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
+        
+        Console.WriteLine($"[BuildProjectTree] After double-check - Active documents: {activeDocuments.Count}");
+        foreach (var doc in activeDocuments)
+        {
+            Console.WriteLine($"[BuildProjectTree] Active document: {doc.Title}, Type: {doc.Type}, ContentFilePath: '{doc.ContentFilePath}', FolderPath: '{doc.FolderPath}'");
+        }
+
         // Organize active documents hierarchically
         var chapters = activeDocuments.Where(d => d.Type == DocumentType.Chapter).ToList();
         var scenes = activeDocuments.Where(d => d.Type == DocumentType.Scene).ToList();

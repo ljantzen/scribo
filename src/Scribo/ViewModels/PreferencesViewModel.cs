@@ -72,6 +72,9 @@ public partial class PreferencesViewModel : ViewModelBase
     private bool showPageCountInStatusBar = false;
 
     [ObservableProperty]
+    private bool autoLoadLastProject = false;
+
+    [ObservableProperty]
     private ObservableCollection<KeyboardShortcutViewModel> keyboardShortcuts = new();
 
     private readonly Action<PreferencesViewModel>? _onSave;
@@ -100,6 +103,7 @@ public partial class PreferencesViewModel : ViewModelBase
         ShowWordCountInStatusBar = settings.ShowWordCountInStatusBar;
         ShowCharacterCountInStatusBar = settings.ShowCharacterCountInStatusBar;
         ShowPageCountInStatusBar = settings.ShowPageCountInStatusBar;
+        AutoLoadLastProject = settings.AutoLoadLastProject;
 
         // Load keyboard shortcuts
         KeyboardShortcuts.Clear();
@@ -165,6 +169,7 @@ public partial class PreferencesViewModel : ViewModelBase
             ShowWordCountInStatusBar = ShowWordCountInStatusBar,
             ShowCharacterCountInStatusBar = ShowCharacterCountInStatusBar,
             ShowPageCountInStatusBar = ShowPageCountInStatusBar,
+            AutoLoadLastProject = AutoLoadLastProject,
             KeyboardShortcuts = GetKeyboardShortcuts()
         };
         

@@ -31,6 +31,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DocumentLinkService _documentLinkService;
     private readonly StatisticsManager _statisticsManager;
     private readonly MarkdownRenderer _markdownRenderer;
+    private readonly ApplicationSettingsService _applicationSettingsService;
     private FileDialogService? _fileDialogService;
     private Window? _parentWindow;
     private SearchWindow? _searchWindow;
@@ -96,13 +97,14 @@ public partial class MainWindowViewModel : ViewModelBase
     private DateTime _lastActivityTime = DateTime.Now;
     private const int IdleTimeoutSeconds = 2; // Calculate statistics after 2 seconds of inactivity
 
-    public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null)
+    public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
     {
         _pluginManager = pluginManager ?? new PluginManager();
         _fileService = fileService ?? new FileService();
         _projectService = projectService ?? new ProjectService();
         _mruService = mruService ?? new MostRecentlyUsedService();
         _searchIndexService = searchIndexService ?? new SearchIndexService();
+        _applicationSettingsService = applicationSettingsService ?? new ApplicationSettingsService();
         _documentLinkService = new DocumentLinkService();
         _statisticsManager = new StatisticsManager(_projectService);
         _markdownRenderer = new MarkdownRenderer(_documentLinkService);
@@ -111,6 +113,9 @@ public partial class MainWindowViewModel : ViewModelBase
         InitializeIdleStatisticsTimer();
         InitializeFindReplace();
         InitializeDocumentLinkAutocomplete();
+        
+        // Auto-load last project if setting is enabled
+        TryAutoLoadLastProject();
     }
 
     private void InitializeDocumentLinkAutocomplete()
@@ -280,6 +285,9 @@ public partial class MainWindowViewModel : ViewModelBase
         // Calculate initial statistics for new project
         RecordActivity();
         CalculateStatistics();
+        
+        // Open project properties window to set project name
+        ShowProjectProperties();
     }
 
     [RelayCommand]
@@ -1751,6 +1759,79 @@ public partial class MainWindowViewModel : ViewModelBase
         HasUnsavedChanges = true;
     }
 
+    /// <summary>
+    /// Moves a document to Trashcan when dragged into Trashcan folder.
+    /// Preserves the folder structure from the original location.
+    /// </summary>
+    public void MoveDocumentToTrashcan(ProjectTreeItemViewModel documentItem)
+    {
+        if (documentItem.Document == null || _currentProject == null)
+            return;
+
+        var document = documentItem.Document;
+        
+        // Don't move if already in Trashcan
+        if (!string.IsNullOrEmpty(document.ContentFilePath) && 
+            document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var projectDirectory = !string.IsNullOrEmpty(CurrentProjectPath)
+            ? Path.GetDirectoryName(CurrentProjectPath) ?? 
+              Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty
+            : string.Empty;
+
+        if (string.IsNullOrEmpty(projectDirectory))
+            return;
+
+        // Find the current parent folder
+        ProjectTreeItemViewModel? currentParent = null;
+        foreach (var rootItem in ProjectTreeItems)
+        {
+            currentParent = FindParentFolder(rootItem, documentItem);
+            if (currentParent != null)
+                break;
+        }
+
+        if (currentParent == null)
+            return;
+
+        // Remove document from current parent's children
+        currentParent.Children.Remove(documentItem);
+
+        // Move file to Trashcan (preserves folder structure)
+        MoveFileToTrashcan(document, projectDirectory);
+
+        // If it's a chapter, also move child scenes to Trashcan
+        if (documentItem.IsChapter)
+        {
+            var scenesToMove = new List<ProjectTreeItemViewModel>(documentItem.Children.Where(c => c.IsScene));
+            foreach (var sceneItem in scenesToMove)
+            {
+                if (sceneItem.Document != null)
+                {
+                    MoveFileToTrashcan(sceneItem.Document, projectDirectory);
+                }
+            }
+        }
+
+        // Clear editor if this document was selected
+        if (documentItem == SelectedProjectItem)
+        {
+            EditorText = string.Empty;
+            CurrentFilePath = string.Empty;
+            SelectedProjectItem = null;
+        }
+
+        // Rebuild the tree to show moved items in Trashcan
+        if (_currentProject != null)
+        {
+            LoadProjectIntoTree(_currentProject);
+        }
+
+        // Mark as having unsaved changes
+        HasUnsavedChanges = true;
+    }
+
     public void ReorderDocumentToPosition(ProjectTreeItemViewModel draggedItem, ProjectTreeItemViewModel targetParent, int targetIndex)
     {
         if (draggedItem.Document == null || _currentProject == null)
@@ -2459,16 +2540,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void MoveFileToTrashcan(Document document, string projectDirectory)
     {
-        Console.WriteLine($"[MoveFileToTrashcan] Starting - Document: {document.Title}, ContentFilePath: '{document.ContentFilePath}', ProjectDirectory: '{projectDirectory}'");
+        Console.WriteLine($"[MoveFileToTrashcan] Starting - Document: {document.Title}, ContentFilePath: '{document.ContentFilePath}', FolderPath: '{document.FolderPath}', ProjectDirectory: '{projectDirectory}'");
         
-        if (string.IsNullOrEmpty(document.ContentFilePath))
-        {
-            Console.WriteLine($"[MoveFileToTrashcan] ContentFilePath is empty, returning");
-            return;
-        }
-
         // Don't move if already in Trashcan
-        if (document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(document.ContentFilePath) && 
+            document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"[MoveFileToTrashcan] Already in Trashcan, returning");
             return;
@@ -2476,14 +2552,29 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // Normalize path separators for ContentFilePath (uses forward slashes)
-            var normalizedContentPath = document.ContentFilePath.Replace('\\', '/');
+            string normalizedContentPath;
+            
+            // If ContentFilePath is empty, generate it based on current document properties to preserve folder structure
+            if (string.IsNullOrEmpty(document.ContentFilePath))
+            {
+                Console.WriteLine($"[MoveFileToTrashcan] ContentFilePath is empty, generating from FolderPath and Type");
+                // Build a dictionary of documents by ID for quick lookup (needed for scene path generation)
+                var documentsById = _currentProject?.Documents.ToDictionary(d => d.Id) ?? new Dictionary<string, Document>();
+                normalizedContentPath = _projectService.GenerateContentFilePath(document, documentsById);
+                Console.WriteLine($"[MoveFileToTrashcan] Generated ContentFilePath: '{normalizedContentPath}'");
+            }
+            else
+            {
+                // Normalize path separators for ContentFilePath (uses forward slashes)
+                normalizedContentPath = document.ContentFilePath.Replace('\\', '/');
+            }
+            
             // Convert forward slashes to platform-specific path separators for file system operations
             var sourceFilePath = Path.Combine(projectDirectory, normalizedContentPath.Replace('/', Path.DirectorySeparatorChar));
             Console.WriteLine($"[MoveFileToTrashcan] Source file path: '{sourceFilePath}'");
             Console.WriteLine($"[MoveFileToTrashcan] Source file exists: {File.Exists(sourceFilePath)}");
             
-            // Preserve the directory structure: locations/location1.md -> Trashcan/locations/location1.md
+            // Preserve the directory structure: locations/subfolder/location1.md -> Trashcan/locations/subfolder/location1.md
             // Use forward slashes for ContentFilePath
             var trashcanPath = "Trashcan/" + normalizedContentPath;
             var targetFilePath = Path.Combine(projectDirectory, trashcanPath.Replace('/', Path.DirectorySeparatorChar));
@@ -2658,6 +2749,48 @@ public partial class MainWindowViewModel : ViewModelBase
             RecentProjects.Add(project);
         }
         OnPropertyChanged(nameof(HasRecentProjects));
+    }
+
+    private void TryAutoLoadLastProject()
+    {
+        try
+        {
+            var settings = _applicationSettingsService.LoadSettings();
+            if (settings.AutoLoadLastProject)
+            {
+                var recentProjects = _mruService.GetRecentProjects();
+                if (recentProjects.Count > 0)
+                {
+                    var lastProject = recentProjects[0];
+                    if (!string.IsNullOrEmpty(lastProject.FilePath) && File.Exists(lastProject.FilePath))
+                    {
+                        Console.WriteLine($"[TryAutoLoadLastProject] Auto-loading last project: {lastProject.FilePath}");
+                        // Use Dispatcher to load project after UI is initialized
+                        Dispatcher.UIThread.Post(async () =>
+                        {
+                            await OpenRecentProject(lastProject.FilePath);
+                        }, DispatcherPriority.Loaded);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[TryAutoLoadLastProject] Last project file does not exist: {lastProject.FilePath}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[TryAutoLoadLastProject] No recent projects found");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[TryAutoLoadLastProject] Auto-load last project is disabled");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TryAutoLoadLastProject] Error auto-loading last project: {ex.Message}");
+            Console.WriteLine($"[TryAutoLoadLastProject] Stack trace: {ex.StackTrace}");
+        }
     }
 
     public void NavigateToDocument(string documentId)

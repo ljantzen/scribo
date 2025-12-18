@@ -20,6 +20,7 @@ public class ApplicationSettings
     public bool ShowWordCountInStatusBar { get; set; } = true;
     public bool ShowCharacterCountInStatusBar { get; set; } = true;
     public bool ShowPageCountInStatusBar { get; set; } = false;
+    public bool AutoLoadLastProject { get; set; } = false;
 
     public static Dictionary<string, string> GetDefaultShortcuts()
     {

@@ -1640,10 +1640,10 @@ public partial class MainWindow : Window
                             return;
                         }
                         
-                        // Don't allow dropping into Trashcan via drag-and-drop (use delete instead)
-                        if (targetItem.IsTrashcanFolder)
+                        // Allow dropping into Trashcan folder or its subfolders
+                        if (targetItem.IsTrashcanFolder || (targetItem.IsFolder && IsTrashcanSubfolder(targetItem)))
                         {
-                            e.DragEffects = DragDropEffects.None;
+                            e.DragEffects = DragDropEffects.Move;
                             return;
                         }
                         
@@ -1775,6 +1775,13 @@ public partial class MainWindow : Window
                         return;
                     }
                     
+                    // Handle dropping into Trashcan folder or its subfolders
+                    if (targetItem.IsTrashcanFolder || IsTrashcanSubfolder(targetItem))
+                    {
+                        vm.MoveDocumentToTrashcan(draggedItem);
+                        return;
+                    }
+                    
                     // Determine target parent and position
                     ProjectTreeItemViewModel? targetParent = null;
                     int targetIndex = -1;
@@ -1804,6 +1811,46 @@ public partial class MainWindow : Window
         }
     }
 
+
+    private bool IsTrashcanSubfolder(ProjectTreeItemViewModel item)
+    {
+        // Check if this folder is a subfolder within Trashcan by traversing up the tree
+        if (DataContext is MainWindowViewModel vm)
+        {
+            foreach (var rootItem in vm.ProjectTreeItems)
+            {
+                if (IsTrashcanSubfolderRecursive(rootItem, item))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private bool IsTrashcanSubfolderRecursive(ProjectTreeItemViewModel parent, ProjectTreeItemViewModel item)
+    {
+        if (parent == item)
+        {
+            // Check if parent is Trashcan or if we're in Trashcan hierarchy
+            return parent.IsTrashcanFolder;
+        }
+        
+        foreach (var child in parent.Children)
+        {
+            if (child == item)
+            {
+                // Found the item, check if parent is Trashcan
+                return parent.IsTrashcanFolder;
+            }
+            
+            if (IsTrashcanSubfolderRecursive(child, item))
+            {
+                // Item is in this branch, check if we're under Trashcan
+                return parent.IsTrashcanFolder || IsTrashcanSubfolderRecursive(parent, parent);
+            }
+        }
+        
+        return false;
+    }
 
     private ProjectTreeItemViewModel? FindParentFolder(ProjectTreeItemViewModel item)
     {

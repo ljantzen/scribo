@@ -196,16 +196,82 @@ public class ProjectService
         {
             document.ProjectDirectory = projectDirectory;
             
+            // Check if ContentFilePath points to a non-existent file but file exists in Trashcan
+            // This handles cases where ContentFilePath was lost or incorrectly set
+            if (!string.IsNullOrEmpty(document.ContentFilePath))
+            {
+                var normalizedContentPath = document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar);
+                var fullPath = Path.Combine(projectDirectory, normalizedContentPath);
+                
+                // If file doesn't exist at the expected path, check if it's in Trashcan
+                if (!File.Exists(fullPath) && !document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+                {
+                    var trashcanDir = Path.Combine(projectDirectory, "Trashcan");
+                    if (Directory.Exists(trashcanDir))
+                    {
+                        // Search for files matching this document's title in Trashcan
+                        var sanitizedTitle = SanitizeFileName(document.Title);
+                        var searchPattern = $"{sanitizedTitle}.md";
+                        var foundFiles = Directory.GetFiles(trashcanDir, searchPattern, SearchOption.AllDirectories);
+                        
+                        if (foundFiles.Length > 0)
+                        {
+                            // Found file in Trashcan, update ContentFilePath
+                            var trashcanFile = foundFiles[0];
+                            var relativePath = Path.GetRelativePath(projectDirectory, trashcanFile);
+                            // Normalize to forward slashes for ContentFilePath
+                            var newTrashcanPath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+                            Console.WriteLine($"[LoadProject] Document '{document.Title}' file not found at '{document.ContentFilePath}', found in Trashcan, updating to: '{newTrashcanPath}'");
+                            document.ContentFilePath = newTrashcanPath;
+                        }
+                    }
+                }
+            }
+            
             // Migrate old projects: if ContentFilePath is empty but Content exists in JSON (backward compatibility)
             // This shouldn't happen with JsonIgnore, but handle it just in case
+            // IMPORTANT: Don't regenerate ContentFilePath if document was in Trashcan - preserve Trashcan path
             if (string.IsNullOrEmpty(document.ContentFilePath) && !string.IsNullOrEmpty(document.Content))
             {
-                // Build a dictionary of documents by ID for quick lookup
-                var documentsById = project.Documents.ToDictionary(d => d.Id);
-                // Generate content file path using the new structure
-                document.ContentFilePath = GenerateContentFilePath(document, documentsById);
-                // Save the content to the file
-                document.SaveContent();
+                // Check if file exists in Trashcan - if so, preserve that path
+                // Search for the file in Trashcan directory structure
+                var trashcanDir = Path.Combine(projectDirectory, "Trashcan");
+                
+                if (Directory.Exists(trashcanDir))
+                {
+                    // Search for files matching this document's title in Trashcan
+                    var sanitizedTitle = SanitizeFileName(document.Title);
+                    var searchPattern = $"{sanitizedTitle}.md";
+                    var foundFiles = Directory.GetFiles(trashcanDir, searchPattern, SearchOption.AllDirectories);
+                    
+                    if (foundFiles.Length > 0)
+                    {
+                        // Found file in Trashcan, calculate relative path
+                        var trashcanFile = foundFiles[0];
+                        var relativePath = Path.GetRelativePath(projectDirectory, trashcanFile);
+                        // Normalize to forward slashes for ContentFilePath
+                        document.ContentFilePath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+                        Console.WriteLine($"[LoadProject] Found document '{document.Title}' in Trashcan, preserving path: '{document.ContentFilePath}'");
+                    }
+                    else
+                    {
+                        // Build a dictionary of documents by ID for quick lookup
+                        var documentsById = project.Documents.ToDictionary(d => d.Id);
+                        // Generate content file path using the new structure
+                        document.ContentFilePath = GenerateContentFilePath(document, documentsById);
+                        // Save the content to the file
+                        document.SaveContent();
+                    }
+                }
+                else
+                {
+                    // Build a dictionary of documents by ID for quick lookup
+                    var documentsById = project.Documents.ToDictionary(d => d.Id);
+                    // Generate content file path using the new structure
+                    document.ContentFilePath = GenerateContentFilePath(document, documentsById);
+                    // Save the content to the file
+                    document.SaveContent();
+                }
             }
         }
 
@@ -284,9 +350,9 @@ public class ProjectService
         // Add a sample character
         var character1 = new Document
         {
-            Title = "John Doe",
+            Title = "Sample character",
             Type = DocumentType.Character,
-            Content = "# John Doe\n\n## Description\n\nA protagonist character.\n\n## Background\n\nAdd character background here.\n\n## Traits\n\n- Trait 1\n- Trait 2\n",
+            Content = "# Character name \n\n## Description\n\n## Background\n\nAdd character background here.\n\n## Traits\n\n",
             CreatedAt = now,
             ModifiedAt = now,
             Order = 0
@@ -296,9 +362,9 @@ public class ProjectService
         // Add a sample location
         var location1 = new Document
         {
-            Title = "The Old House",
+            Title = "Sample location",
             Type = DocumentType.Location,
-            Content = "# The Old House\n\n## Description\n\nAn old, mysterious house.\n\n## Details\n\nAdd location details here.\n\n## Atmosphere\n\nDescribe the atmosphere of this location.\n",
+            Content = "# Location name\n\n## Description\n\n",
             CreatedAt = now,
             ModifiedAt = now,
             Order = 0
@@ -308,9 +374,9 @@ public class ProjectService
         // Add a sample research document
         var research1 = new Document
         {
-            Title = "Historical Context",
+            Title = "Sample research note",
             Type = DocumentType.Research,
-            Content = "# Historical Context\n\n## Research Notes\n\nAdd your research notes here.\n\n## Sources\n\n- Source 1\n- Source 2\n",
+            Content = "# Sample research note\n\nAdd your research notes here.\n\n## Sources\n\n- Source 1\n- Source 2\n",
             CreatedAt = now,
             ModifiedAt = now,
             Order = 0
@@ -320,9 +386,9 @@ public class ProjectService
         // Add a sample note
         var note1 = new Document
         {
-            Title = "Plot Ideas",
+            Title = "Sample note",
             Type = DocumentType.Note,
-            Content = "# Plot Ideas\n\n- Idea 1\n- Idea 2\n- Idea 3\n\n## Notes\n\nAdditional notes and thoughts.\n",
+            Content = "# Ideas or insights\n\n- Idea 1\n- Idea 2\n- Idea 3\n\n## Notes\n\nAdditional notes and thoughts.\n",
             CreatedAt = now,
             ModifiedAt = now,
             Order = 0
@@ -375,7 +441,7 @@ public class ProjectService
     /// Generates a content file path based on document type and title.
     /// Chapters become folders, scenes go into chapter folders, other types go into type-specific folders.
     /// </summary>
-    private string GenerateContentFilePath(Document document, Dictionary<string, Document> documentsById)
+    public string GenerateContentFilePath(Document document, Dictionary<string, Document> documentsById)
     {
         var sanitizedTitle = SanitizeFileName(document.Title);
         
