@@ -112,8 +112,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private int _sessionWordsDeleted = 0;
     private int _sessionCharactersWritten = 0;
     private int _sessionCharactersDeleted = 0;
-    private int _previousWordCount = 0;
-    private int _previousCharacterCount = 0;
+    private int _previousWordCount = -1; // Use -1 to indicate not initialized
+    private int _previousCharacterCount = -1; // Use -1 to indicate not initialized
 
     public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
     {
@@ -263,14 +263,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 var timeSinceLastSave = DateTime.Now - _lastSaveTime;
                 if (timeSinceLastSave.TotalSeconds >= autoSaveIntervalSeconds)
                 {
-                    Console.WriteLine($"[AutoSave] Auto-saving project after {timeSinceLastActivity.TotalSeconds:F1} seconds of idle time");
                     PerformAutoSave();
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AutoSave] Error in auto-save timer: {ex.Message}");
         }
     }
 
@@ -287,12 +285,9 @@ public partial class MainWindowViewModel : ViewModelBase
             _currentProject = project;
             _lastSaveTime = DateTime.Now;
             HasUnsavedChanges = false;
-            Console.WriteLine($"[AutoSave] Project auto-saved successfully");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AutoSave] Error auto-saving project: {ex.Message}");
-            Console.WriteLine($"[AutoSave] Stack trace: {ex.StackTrace}");
         }
     }
 
@@ -333,7 +328,8 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Only track changes if we have initialized session statistics (previous counts are set)
         // This prevents tracking changes during initial load
-        if (_sessionInitialWordCount > 0 || _previousWordCount > 0)
+        // Check if session was initialized by checking if _previousWordCount was set (not -1)
+        if (_previousWordCount >= 0 && _previousCharacterCount >= 0)
         {
             // Calculate changes since last update
             var wordChange = currentWordCount - _previousWordCount;
@@ -402,8 +398,8 @@ public partial class MainWindowViewModel : ViewModelBase
             _sessionWordsDeleted = 0;
             _sessionCharactersWritten = 0;
             _sessionCharactersDeleted = 0;
-            _previousWordCount = 0;
-            _previousCharacterCount = 0;
+            _previousWordCount = 0; // Set to 0 (not -1) so tracking can start
+            _previousCharacterCount = 0; // Set to 0 (not -1) so tracking can start
             return;
         }
         
@@ -421,8 +417,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _sessionWordsDeleted = 0;
         _sessionCharactersWritten = 0;
         _sessionCharactersDeleted = 0;
-        
-        Console.WriteLine($"[SessionStats] Initialized - Words: {_sessionInitialWordCount}, Characters: {_sessionInitialCharacterCount}, Pages: {_sessionInitialPageCount}");
     }
     
     public void Dispose()
@@ -810,7 +804,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedProjectItemChanged(ProjectTreeItemViewModel? value)
     {
-        Console.WriteLine($"[OnSelectedProjectItemChanged] Called with item: {(value?.Name ?? "null")}, Document: {(value?.Document != null ? value.Document.Title : "null")}");
         
         RecordActivity(); // Record activity when selection changes
         
@@ -819,56 +812,42 @@ public partial class MainWindowViewModel : ViewModelBase
             try
             {
                 var document = value.Document;
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Document Title: {document.Title}");
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Document ContentFilePath: '{document.ContentFilePath}'");
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Document ProjectDirectory: '{document.ProjectDirectory}'");
-                Console.WriteLine($"[OnSelectedProjectItemChanged] CurrentProjectPath: '{CurrentProjectPath}'");
                 
                 // Check if document is in Trashcan and set read-only accordingly
                 var isInTrashcan = !string.IsNullOrEmpty(document.ContentFilePath) && 
                                    document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase);
                 IsEditorReadOnly = isInTrashcan;
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Document is in Trashcan: {isInTrashcan}, IsEditorReadOnly: {IsEditorReadOnly}");
                 
                 // Ensure ProjectDirectory is set if we have a current project path
                 if (string.IsNullOrEmpty(document.ProjectDirectory) && !string.IsNullOrEmpty(CurrentProjectPath))
                 {
                     var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
                     document.ProjectDirectory = projectDirectory;
-                    Console.WriteLine($"[OnSelectedProjectItemChanged] Set ProjectDirectory to: '{projectDirectory}'");
                 }
                 
                 // Load content - this will get from _content if set, or load from file if ProjectDirectory and ContentFilePath are set
                 // For unsaved projects, content should be in _content already
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Calling document.Content getter...");
                 var content = document.Content;
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Content length: {content?.Length ?? 0}");
                 
                 // If content is empty and we have a ContentFilePath but ProjectDirectory is not set,
                 // try to set ProjectDirectory from CurrentProjectPath if available
                 if (string.IsNullOrEmpty(content) && !string.IsNullOrEmpty(document.ContentFilePath) && string.IsNullOrEmpty(document.ProjectDirectory))
                 {
-                    Console.WriteLine($"[OnSelectedProjectItemChanged] Content is empty, trying to set ProjectDirectory again...");
                     if (!string.IsNullOrEmpty(CurrentProjectPath))
                     {
                         var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
                         document.ProjectDirectory = projectDirectory;
-                        Console.WriteLine($"[OnSelectedProjectItemChanged] Set ProjectDirectory to: '{projectDirectory}', retrying content load...");
                         // Try loading again
                         content = document.Content;
-                        Console.WriteLine($"[OnSelectedProjectItemChanged] Content length after retry: {content?.Length ?? 0}");
                     }
                 }
                 
                 EditorText = content;
                 CurrentFilePath = document.ContentFilePath;
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Set EditorText (length: {EditorText?.Length ?? 0}), CurrentFilePath: '{CurrentFilePath}'");
                 HasUnsavedChanges = false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[OnSelectedProjectItemChanged] EXCEPTION: {ex.Message}");
-                Console.WriteLine($"[OnSelectedProjectItemChanged] Stack trace: {ex.StackTrace}");
                 EditorText = $"Error loading document: {ex.Message}";
                 HasUnsavedChanges = false;
             }
@@ -876,7 +855,6 @@ public partial class MainWindowViewModel : ViewModelBase
         else if (value != null && value.Children.Any())
         {
             // Selected item is a folder, clear the editor and allow editing
-            Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is a folder, clearing editor");
             EditorText = string.Empty;
             CurrentFilePath = string.Empty;
             IsEditorReadOnly = false;
@@ -885,7 +863,6 @@ public partial class MainWindowViewModel : ViewModelBase
         else
         {
             // No document selected, allow editing
-            Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is null or has no document/children");
             IsEditorReadOnly = false;
         }
     }
@@ -913,9 +890,13 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         
         // Calculate initial statistics, initialize session tracking, then update display
-        CalculateStatisticsWithoutDisplay();
+        // First calculate statistics to ensure they're up to date (without updating display)
+        _statisticsManager.SetCurrentProject(_currentProject, CurrentProjectPath);
+        var initialStats = _statisticsManager.CalculateStatistics(null, string.Empty);
+        // Initialize session tracking with the calculated stats
         InitializeSessionStatistics();
-        UpdateStatisticsDisplay();
+        // Now update display with current statistics (this will recalculate with current editor text)
+        UpdateStatisticsDisplay(initialStats);
     }
 
     private Project BuildProjectFromCurrentState()
@@ -1244,6 +1225,17 @@ public partial class MainWindowViewModel : ViewModelBase
         // Expand the parent folder if it's not already expanded
         folderNode.IsExpanded = true;
         
+        // Expand the top-level Manuscript folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            var manuscriptFolder = rootNode.Children.FirstOrDefault(c => c.IsManuscriptFolder);
+            if (manuscriptFolder != null)
+            {
+                manuscriptFolder.IsExpanded = true;
+            }
+        }
+        
         // Add to the folder's children
         folderNode.Children.Add(newChapterNode);
         
@@ -1317,6 +1309,17 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Expand the parent chapter if it's not already expanded
         chapterNode.IsExpanded = true;
+        
+        // Expand the top-level Manuscript folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            var manuscriptFolder = rootNode.Children.FirstOrDefault(c => c.IsManuscriptFolder);
+            if (manuscriptFolder != null)
+            {
+                manuscriptFolder.IsExpanded = true;
+            }
+        }
         
         // Add to the chapter node's children
         chapterNode.Children.Add(newSceneNode);
@@ -1394,6 +1397,17 @@ public partial class MainWindowViewModel : ViewModelBase
         // Expand the parent folder if it's not already expanded
         folderNode.IsExpanded = true;
         
+        // Expand the top-level Characters folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            var charactersFolder = rootNode.Children.FirstOrDefault(c => c.IsCharactersFolder);
+            if (charactersFolder != null)
+            {
+                charactersFolder.IsExpanded = true;
+            }
+        }
+        
         // Add to the Characters folder's children
         folderNode.Children.Add(newCharacterNode);
         
@@ -1469,6 +1483,17 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Expand the parent folder if it's not already expanded
         folderNode.IsExpanded = true;
+        
+        // Expand the top-level Locations folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            var locationsFolder = rootNode.Children.FirstOrDefault(c => c.IsLocationsFolder);
+            if (locationsFolder != null)
+            {
+                locationsFolder.IsExpanded = true;
+            }
+        }
         
         // Add to the Locations folder's children
         folderNode.Children.Add(newLocationNode);
@@ -1557,6 +1582,28 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Expand the parent folder if it's not already expanded
         folderNode.IsExpanded = true;
+        
+        // Expand the top-level Notes or Research folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            if (noteType == DocumentType.Research)
+            {
+                var researchFolder = rootNode.Children.FirstOrDefault(c => c.IsResearchFolder);
+                if (researchFolder != null)
+                {
+                    researchFolder.IsExpanded = true;
+                }
+            }
+            else
+            {
+                var notesFolder = rootNode.Children.FirstOrDefault(c => c.IsNotesFolder);
+                if (notesFolder != null)
+                {
+                    notesFolder.IsExpanded = true;
+                }
+            }
+        }
         
         // Add to the folder's children
         folderNode.Children.Add(newNoteNode);
@@ -2705,13 +2752,11 @@ public partial class MainWindowViewModel : ViewModelBase
                           path.Equals(trashcanFolderPath, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        Console.WriteLine($"[RemoveEmptyTrashcanFolder] Checking folder '{trashcanFolderPath}', found {documentsInFolder.Count} documents");
 
         // If no documents remain in this folder, we can optionally clean up the folder structure
         // The tree rebuild will automatically not show empty folders, so this is mainly for file system cleanup
         if (documentsInFolder.Count == 0)
         {
-            Console.WriteLine($"[RemoveEmptyTrashcanFolder] Folder '{trashcanFolderPath}' is empty");
             // Note: We don't delete the folder from the file system here as it will be cleaned up
             // when the project is saved or when the tree is rebuilt. The tree rebuild will handle
             // not showing empty folders.
@@ -2743,13 +2788,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void MoveFileToTrashcan(Document document, string projectDirectory)
     {
-        Console.WriteLine($"[MoveFileToTrashcan] Starting - Document: {document.Title}, ContentFilePath: '{document.ContentFilePath}', FolderPath: '{document.FolderPath}', ProjectDirectory: '{projectDirectory}'");
         
         // Don't move if already in Trashcan
         if (!string.IsNullOrEmpty(document.ContentFilePath) && 
             document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine($"[MoveFileToTrashcan] Already in Trashcan, returning");
             return;
         }
 
@@ -2760,11 +2803,9 @@ public partial class MainWindowViewModel : ViewModelBase
             // If ContentFilePath is empty, generate it based on current document properties to preserve folder structure
             if (string.IsNullOrEmpty(document.ContentFilePath))
             {
-                Console.WriteLine($"[MoveFileToTrashcan] ContentFilePath is empty, generating from FolderPath and Type");
                 // Build a dictionary of documents by ID for quick lookup (needed for scene path generation)
                 var documentsById = _currentProject?.Documents.ToDictionary(d => d.Id) ?? new Dictionary<string, Document>();
                 normalizedContentPath = _projectService.GenerateContentFilePath(document, documentsById);
-                Console.WriteLine($"[MoveFileToTrashcan] Generated ContentFilePath: '{normalizedContentPath}'");
             }
             else
             {
@@ -2774,22 +2815,17 @@ public partial class MainWindowViewModel : ViewModelBase
             
             // Convert forward slashes to platform-specific path separators for file system operations
             var sourceFilePath = Path.Combine(projectDirectory, normalizedContentPath.Replace('/', Path.DirectorySeparatorChar));
-            Console.WriteLine($"[MoveFileToTrashcan] Source file path: '{sourceFilePath}'");
-            Console.WriteLine($"[MoveFileToTrashcan] Source file exists: {File.Exists(sourceFilePath)}");
             
             // Preserve the directory structure: locations/subfolder/location1.md -> Trashcan/locations/subfolder/location1.md
             // Use forward slashes for ContentFilePath
             var trashcanPath = "Trashcan/" + normalizedContentPath;
             var targetFilePath = Path.Combine(projectDirectory, trashcanPath.Replace('/', Path.DirectorySeparatorChar));
             var targetDirectory = Path.GetDirectoryName(targetFilePath);
-            Console.WriteLine($"[MoveFileToTrashcan] Target file path: '{targetFilePath}'");
-            Console.WriteLine($"[MoveFileToTrashcan] Target directory: '{targetDirectory}'");
 
             // Update document's ContentFilePath first so it appears in Trashcan even if file move fails
             document.ContentFilePath = trashcanPath;
             // Clear cached content so it will reload from the new location
             // The Content getter will automatically reload from the new file path when accessed
-            Console.WriteLine($"[MoveFileToTrashcan] Updated ContentFilePath to: '{trashcanPath}' (content will reload from new path when accessed)");
 
             // Only move the file if it exists
             if (File.Exists(sourceFilePath))
@@ -2798,16 +2834,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (!string.IsNullOrEmpty(targetDirectory) && !Directory.Exists(targetDirectory))
                 {
                     Directory.CreateDirectory(targetDirectory);
-                    Console.WriteLine($"[MoveFileToTrashcan] Created target directory: '{targetDirectory}'");
                 }
 
                 // Move the file
                 File.Move(sourceFilePath, targetFilePath, overwrite: true);
-                Console.WriteLine($"[MoveFileToTrashcan] Successfully moved file from '{sourceFilePath}' to '{targetFilePath}'");
             }
             else
             {
-                Console.WriteLine($"[MoveFileToTrashcan] Source file does not exist, skipping file move (ContentFilePath already updated)");
             }
 
             // If it's a chapter, also move any remaining files in the chapter folder
@@ -2968,7 +3001,6 @@ public partial class MainWindowViewModel : ViewModelBase
                     var lastProject = recentProjects[0];
                     if (!string.IsNullOrEmpty(lastProject.FilePath) && File.Exists(lastProject.FilePath))
                     {
-                        Console.WriteLine($"[TryAutoLoadLastProject] Auto-loading last project: {lastProject.FilePath}");
                         // Use Dispatcher to load project after UI is initialized
                         Dispatcher.UIThread.Post(async () =>
                         {
@@ -2977,23 +3009,18 @@ public partial class MainWindowViewModel : ViewModelBase
                     }
                     else
                     {
-                        Console.WriteLine($"[TryAutoLoadLastProject] Last project file does not exist: {lastProject.FilePath}");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"[TryAutoLoadLastProject] No recent projects found");
                 }
             }
             else
             {
-                Console.WriteLine($"[TryAutoLoadLastProject] Auto-load last project is disabled");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TryAutoLoadLastProject] Error auto-loading last project: {ex.Message}");
-            Console.WriteLine($"[TryAutoLoadLastProject] Stack trace: {ex.StackTrace}");
         }
     }
 

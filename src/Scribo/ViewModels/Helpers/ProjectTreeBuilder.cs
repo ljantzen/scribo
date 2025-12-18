@@ -36,15 +36,11 @@ public static class ProjectTreeBuilder
         var documentsById = project.Documents.ToDictionary(d => d.Id);
 
         // Separate documents in Trashcan from active documents
-        Console.WriteLine($"[BuildProjectTree] Total documents in project: {project.Documents.Count}");
         var documentsInTrashcan = project.Documents.Where(d => !string.IsNullOrEmpty(d.ContentFilePath) && d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
         var activeDocuments = project.Documents.Where(d => string.IsNullOrEmpty(d.ContentFilePath) || !d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
-        Console.WriteLine($"[BuildProjectTree] Documents in Trashcan: {documentsInTrashcan.Count}");
-        Console.WriteLine($"[BuildProjectTree] Active documents: {activeDocuments.Count}");
         
         foreach (var doc in documentsInTrashcan)
         {
-            Console.WriteLine($"[BuildProjectTree] Trashcan document: {doc.Title}, ContentFilePath: '{doc.ContentFilePath}'");
         }
 
         // Double-check: ensure no Trashcan documents are in activeDocuments
@@ -53,12 +49,6 @@ public static class ProjectTreeBuilder
             string.IsNullOrEmpty(d.ContentFilePath) || 
             !d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
         
-        Console.WriteLine($"[BuildProjectTree] After double-check - Active documents: {activeDocuments.Count}");
-        foreach (var doc in activeDocuments)
-        {
-            Console.WriteLine($"[BuildProjectTree] Active document: {doc.Title}, Type: {doc.Type}, ContentFilePath: '{doc.ContentFilePath}', FolderPath: '{doc.FolderPath}'");
-        }
-
         // Organize active documents hierarchically
         var chapters = activeDocuments.Where(d => d.Type == DocumentType.Chapter).ToList();
         var scenes = activeDocuments.Where(d => d.Type == DocumentType.Scene).ToList();
@@ -248,7 +238,6 @@ public static class ProjectTreeBuilder
 
     private static ProjectTreeItemViewModel BuildTrashcanTree(List<Document> documentsInTrashcan)
     {
-        Console.WriteLine($"[BuildTrashcanTree] Starting with {documentsInTrashcan.Count} documents");
         
         var trashcanNode = new ProjectTreeItemViewModel
         {
@@ -263,11 +252,9 @@ public static class ProjectTreeBuilder
 
         foreach (var doc in documentsInTrashcan)
         {
-            Console.WriteLine($"[BuildTrashcanTree] Processing document: {doc.Title}, ContentFilePath: '{doc.ContentFilePath}'");
             
             if (string.IsNullOrEmpty(doc.ContentFilePath))
             {
-                Console.WriteLine($"[BuildTrashcanTree] Skipping document {doc.Title} - ContentFilePath is empty");
                 continue;
             }
 
@@ -334,7 +321,6 @@ public static class ProjectTreeBuilder
                 Document = doc
             };
             folderNode.Children.Add(docNode);
-            Console.WriteLine($"[BuildTrashcanTree] Added document '{doc.Title}' to folder '{folderNode.Name}' (folderPath: '{folderPath}')");
         }
 
         // Sort children in each folder
@@ -343,12 +329,6 @@ public static class ProjectTreeBuilder
         // Remove empty folders (folders with no children)
         RemoveEmptyFolders(trashcanNode);
         
-        Console.WriteLine($"[BuildTrashcanTree] Completed. Trashcan node has {trashcanNode.Children.Count} children");
-        foreach (var child in trashcanNode.Children)
-        {
-            Console.WriteLine($"[BuildTrashcanTree] Trashcan child: {child.Name} (IsFolder: {child.IsFolder}, Document: {(child.Document != null ? child.Document.Title : "null")})");
-        }
-
         return trashcanNode;
     }
 
@@ -368,7 +348,6 @@ public static class ProjectTreeBuilder
                 if (child.Children.Count == 0)
                 {
                     childrenToRemove.Add(child);
-                    Console.WriteLine($"[RemoveEmptyFolders] Marking empty folder '{child.Name}' for removal");
                 }
             }
         }
@@ -377,7 +356,6 @@ public static class ProjectTreeBuilder
         foreach (var emptyFolder in childrenToRemove)
         {
             node.Children.Remove(emptyFolder);
-            Console.WriteLine($"[RemoveEmptyFolders] Removed empty folder '{emptyFolder.Name}'");
         }
     }
 
