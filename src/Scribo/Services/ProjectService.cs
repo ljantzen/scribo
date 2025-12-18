@@ -46,7 +46,9 @@ public class ProjectService
             string? oldFullPath = null;
             if (!string.IsNullOrEmpty(oldContentFilePath))
             {
-                oldFullPath = Path.Combine(projectDirectory, oldContentFilePath);
+                // Normalize path separators - ContentFilePath uses forward slashes
+                var normalizedOldPath = oldContentFilePath.Replace('/', Path.DirectorySeparatorChar);
+                oldFullPath = Path.Combine(projectDirectory, normalizedOldPath);
                 // Only track if file actually exists
                 if (!File.Exists(oldFullPath))
                 {
@@ -78,7 +80,9 @@ public class ProjectService
             // If path changed and old file exists, we need to move the file
             if (pathChanged && oldFullPath != null)
             {
-                var newFullPath = Path.Combine(projectDirectory, newContentFilePath);
+                // Normalize path separators - ContentFilePath uses forward slashes
+                var normalizedNewPath = newContentFilePath.Replace('/', Path.DirectorySeparatorChar);
+                var newFullPath = Path.Combine(projectDirectory, normalizedNewPath);
                 var newDirectory = Path.GetDirectoryName(newFullPath);
                 
                 // Ensure target directory exists

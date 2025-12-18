@@ -52,6 +52,12 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     private bool isNotesFolder = false;
 
     /// <summary>
+    /// Indicates whether this is the Trashcan folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isTrashcanFolder = false;
+
+    /// <summary>
     /// Folder path for subfolders (e.g., "Main Characters" for a subfolder in Characters).
     /// Empty for main type folders.
     /// </summary>
@@ -106,7 +112,7 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     /// Indicates whether this is a subfolder (a folder that's not a main type folder).
     /// </summary>
     public bool IsSubfolder => IsFolder && !IsRoot && !IsManuscriptFolder && 
-                               !IsCharactersFolder && !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder;
+                               !IsCharactersFolder && !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsTrashcanFolder;
 
     /// <summary>
     /// Indicates whether this folder can have subfolders created in it.
@@ -143,5 +149,5 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     /// </summary>
     public bool CanDelete => (Document != null || IsSubfolder) && 
                             !IsRoot && !IsManuscriptFolder && !IsCharactersFolder && 
-                            !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder;
+                            !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsTrashcanFolder;
 }

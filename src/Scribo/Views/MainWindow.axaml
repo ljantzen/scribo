@@ -136,6 +136,10 @@
                                             <MenuItem Header="Create Subfolder" 
                                                      IsVisible="{Binding CanCreateSubfolder}"
                                                      Click="OnCreateSubfolderClick"/>
+                                            <Separator IsVisible="{Binding IsTrashcanFolder}"/>
+                                            <MenuItem Header="Empty Trashcan" 
+                                                     IsVisible="{Binding IsTrashcanFolder}"
+                                                     Click="OnEmptyTrashcanClick"/>
                                             <Separator IsVisible="{Binding Document}"/>
                                             <MenuItem Header="Move Up" 
                                                      IsVisible="{Binding Document}"

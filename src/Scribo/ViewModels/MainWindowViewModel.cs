@@ -611,6 +611,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedProjectItemChanged(ProjectTreeItemViewModel? value)
     {
+        Console.WriteLine($"[OnSelectedProjectItemChanged] Called with item: {(value?.Name ?? "null")}, Document: {(value?.Document != null ? value.Document.Title : "null")}");
+        
         RecordActivity(); // Record activity when selection changes
         
         if (value?.Document != null)
@@ -618,37 +620,50 @@ public partial class MainWindowViewModel : ViewModelBase
             try
             {
                 var document = value.Document;
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Document Title: {document.Title}");
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Document ContentFilePath: '{document.ContentFilePath}'");
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Document ProjectDirectory: '{document.ProjectDirectory}'");
+                Console.WriteLine($"[OnSelectedProjectItemChanged] CurrentProjectPath: '{CurrentProjectPath}'");
                 
                 // Ensure ProjectDirectory is set if we have a current project path
                 if (string.IsNullOrEmpty(document.ProjectDirectory) && !string.IsNullOrEmpty(CurrentProjectPath))
                 {
                     var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
                     document.ProjectDirectory = projectDirectory;
+                    Console.WriteLine($"[OnSelectedProjectItemChanged] Set ProjectDirectory to: '{projectDirectory}'");
                 }
                 
                 // Load content - this will get from _content if set, or load from file if ProjectDirectory and ContentFilePath are set
                 // For unsaved projects, content should be in _content already
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Calling document.Content getter...");
                 var content = document.Content;
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Content length: {content?.Length ?? 0}");
                 
                 // If content is empty and we have a ContentFilePath but ProjectDirectory is not set,
                 // try to set ProjectDirectory from CurrentProjectPath if available
                 if (string.IsNullOrEmpty(content) && !string.IsNullOrEmpty(document.ContentFilePath) && string.IsNullOrEmpty(document.ProjectDirectory))
                 {
+                    Console.WriteLine($"[OnSelectedProjectItemChanged] Content is empty, trying to set ProjectDirectory again...");
                     if (!string.IsNullOrEmpty(CurrentProjectPath))
                     {
                         var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
                         document.ProjectDirectory = projectDirectory;
+                        Console.WriteLine($"[OnSelectedProjectItemChanged] Set ProjectDirectory to: '{projectDirectory}', retrying content load...");
                         // Try loading again
                         content = document.Content;
+                        Console.WriteLine($"[OnSelectedProjectItemChanged] Content length after retry: {content?.Length ?? 0}");
                     }
                 }
                 
                 EditorText = content;
                 CurrentFilePath = document.ContentFilePath;
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Set EditorText (length: {EditorText?.Length ?? 0}), CurrentFilePath: '{CurrentFilePath}'");
                 HasUnsavedChanges = false;
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[OnSelectedProjectItemChanged] EXCEPTION: {ex.Message}");
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Stack trace: {ex.StackTrace}");
                 EditorText = $"Error loading document: {ex.Message}";
                 HasUnsavedChanges = false;
             }
@@ -656,9 +671,14 @@ public partial class MainWindowViewModel : ViewModelBase
         else if (value != null && value.Children.Any())
         {
             // Selected item is a folder, clear the editor
+            Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is a folder, clearing editor");
             EditorText = string.Empty;
             CurrentFilePath = string.Empty;
             HasUnsavedChanges = false;
+        }
+        else
+        {
+            Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is null or has no document/children");
         }
     }
 
@@ -676,6 +696,13 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Expand the root node so Manuscript, Characters, Locations, etc. are visible
         root.IsExpanded = true;
+        
+        // Expand Trashcan folder if it has items
+        var trashcanFolder = root.Children.FirstOrDefault(c => c.IsTrashcanFolder);
+        if (trashcanFolder != null && trashcanFolder.Children.Any())
+        {
+            trashcanFolder.IsExpanded = true;
+        }
         
         // Update statistics display after loading project
         UpdateStatisticsDisplay();
@@ -1685,8 +1712,40 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateDocumentOrders(currentParent);
         UpdateDocumentOrders(targetFolder);
 
-        // ContentFilePath will be regenerated on save based on the new FolderPath
-        // We don't clear it here so SaveProject can detect the path change and move the file
+        // If document is in Trashcan, move the file back to its proper location
+        var projectDirectory = !string.IsNullOrEmpty(CurrentProjectPath)
+            ? Path.GetDirectoryName(CurrentProjectPath) ?? 
+              Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty
+            : string.Empty;
+
+        bool wasInTrashcan = !string.IsNullOrEmpty(document.ContentFilePath) &&
+                             document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase);
+        
+        if (!string.IsNullOrEmpty(projectDirectory) && wasInTrashcan)
+        {
+            // Store the old Trashcan folder path before moving
+            var oldTrashcanPath = document.ContentFilePath;
+            var trashcanFolderPath = GetTrashcanFolderPath(oldTrashcanPath);
+            
+            MoveFileFromTrashcan(document, targetFolder, projectDirectory);
+            
+            // Check if the Trashcan folder is now empty and remove it if needed
+            if (!string.IsNullOrEmpty(trashcanFolderPath))
+            {
+                RemoveEmptyTrashcanFolder(trashcanFolderPath);
+            }
+        }
+        else
+        {
+            // ContentFilePath will be regenerated on save based on the new FolderPath
+            // We don't clear it here so SaveProject can detect the path change and move the file
+        }
+
+        // Rebuild the tree to reflect the changes
+        if (_currentProject != null)
+        {
+            LoadProjectIntoTree(_currentProject);
+        }
 
         // Mark as having unsaved changes
         HasUnsavedChanges = true;
@@ -1903,6 +1962,71 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void EmptyTrashcan(ProjectTreeItemViewModel? item)
+    {
+        if (item == null || _currentProject == null)
+            return;
+
+        // Only allow emptying if this is the Trashcan folder
+        if (!item.IsTrashcanFolder)
+            return;
+
+        // Count documents in Trashcan
+        var documentsInTrashcan = _currentProject.Documents
+            .Where(d => !string.IsNullOrEmpty(d.ContentFilePath) && 
+                       d.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (documentsInTrashcan.Count == 0)
+            return; // Nothing to empty
+
+        // Permanently delete all documents in Trashcan
+        var projectDirectory = !string.IsNullOrEmpty(CurrentProjectPath)
+            ? Path.GetDirectoryName(CurrentProjectPath) ?? 
+              Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty
+            : string.Empty;
+
+        foreach (var document in documentsInTrashcan)
+        {
+            // Remove document from project
+            _currentProject.Documents.Remove(document);
+
+            // Delete file permanently
+            if (!string.IsNullOrEmpty(projectDirectory) && !string.IsNullOrEmpty(document.ContentFilePath))
+            {
+                var documentFilePath = Path.Combine(projectDirectory, document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                try
+                {
+                    if (File.Exists(documentFilePath))
+                    {
+                        File.Delete(documentFilePath);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        // Clear editor if a Trashcan document was selected
+        if (SelectedProjectItem != null && SelectedProjectItem.Document != null &&
+            !string.IsNullOrEmpty(SelectedProjectItem.Document.ContentFilePath) &&
+            SelectedProjectItem.Document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+        {
+            EditorText = string.Empty;
+            CurrentFilePath = string.Empty;
+            SelectedProjectItem = null;
+        }
+
+        // Rebuild the tree
+        if (_currentProject != null)
+        {
+            LoadProjectIntoTree(_currentProject);
+        }
+
+        // Mark as having unsaved changes
+        HasUnsavedChanges = true;
+    }
+
+    [RelayCommand]
     private void DeleteItem(ProjectTreeItemViewModel? item)
     {
         if (item == null)
@@ -1915,19 +2039,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Don't allow deleting root or main type folders
         if (item.IsRoot || item.IsManuscriptFolder || item.IsCharactersFolder || 
-            item.IsLocationsFolder || item.IsResearchFolder || item.IsNotesFolder)
+            item.IsLocationsFolder || item.IsResearchFolder || item.IsNotesFolder || item.IsTrashcanFolder)
             return;
-
-        // Ask for confirmation
-        if (item == null)
-        {
-            return;
-        }
-        var confirmed = ShowDeleteConfirmationDialog(item);
-        if (!confirmed)
-        {
-            return;
-        }
 
         // Find the parent folder
         ProjectTreeItemViewModel? parentFolder = null;
@@ -1941,77 +2054,84 @@ public partial class MainWindowViewModel : ViewModelBase
         if (parentFolder == null)
             return;
 
-        // Handle document deletion
+        // Handle document deletion (move to Trashcan, or permanently delete if already in Trashcan)
         if (item.Document != null)
         {
             var document = item.Document;
+            var projectDirectory = !string.IsNullOrEmpty(CurrentProjectPath)
+                ? Path.GetDirectoryName(CurrentProjectPath) ?? 
+                  Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty
+                : string.Empty;
 
-            // If it's a chapter, delete all child scenes first
-            if (item.IsChapter)
+            // Check if document is already in Trashcan - if so, permanently delete it
+            bool isInTrashcan = !string.IsNullOrEmpty(document.ContentFilePath) && 
+                               document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase);
+
+            if (isInTrashcan)
             {
-                var scenesToDelete = new List<ProjectTreeItemViewModel>(item.Children.Where(c => c.IsScene));
-                foreach (var sceneItem in scenesToDelete)
+                // Permanently delete from Trashcan
+                // If it's a chapter, delete all child scenes first
+                if (item.IsChapter)
                 {
-                    if (sceneItem.Document != null)
+                    var scenesToDelete = new List<ProjectTreeItemViewModel>(item.Children.Where(c => c.IsScene));
+                    foreach (var sceneItem in scenesToDelete)
                     {
-                        // Remove scene from project
-                        _currentProject.Documents.Remove(sceneItem.Document);
-
-                        // Delete scene content file if project is saved
-                        if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(sceneItem.Document.ContentFilePath))
+                        if (sceneItem.Document != null)
                         {
-                            var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
-                                                  Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-                            var sceneFilePath = Path.Combine(projectDirectory, sceneItem.Document.ContentFilePath);
-                            try
+                            _currentProject.Documents.Remove(sceneItem.Document);
+                            if (!string.IsNullOrEmpty(projectDirectory) && !string.IsNullOrEmpty(sceneItem.Document.ContentFilePath))
                             {
-                                if (File.Exists(sceneFilePath))
+                                var sceneFilePath = Path.Combine(projectDirectory, sceneItem.Document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                                try
                                 {
-                                    File.Delete(sceneFilePath);
+                                    if (File.Exists(sceneFilePath))
+                                    {
+                                        File.Delete(sceneFilePath);
+                                    }
                                 }
-                            }
-                            catch (Exception ex)
-                            {
+                                catch { }
                             }
                         }
                     }
+                }
+
+                // Remove document from project
+                _currentProject.Documents.Remove(document);
+
+                // Delete file permanently
+                if (!string.IsNullOrEmpty(projectDirectory) && !string.IsNullOrEmpty(document.ContentFilePath))
+                {
+                    var documentFilePath = Path.Combine(projectDirectory, document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                    try
+                    {
+                        if (File.Exists(documentFilePath))
+                        {
+                            File.Delete(documentFilePath);
+                        }
+                    }
+                    catch { }
                 }
             }
-
-            // Remove document from project
-            _currentProject.Documents.Remove(document);
-
-            // Delete content file if project is saved
-            if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(document.ContentFilePath))
+            else
             {
-                var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
-                                      Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-                var documentFilePath = Path.Combine(projectDirectory, document.ContentFilePath);
-                try
+                // Move to Trashcan
+                // If it's a chapter, move all child scenes to Trashcan first
+                if (item.IsChapter)
                 {
-                    if (File.Exists(documentFilePath))
+                    var scenesToMove = new List<ProjectTreeItemViewModel>(item.Children.Where(c => c.IsScene));
+                    foreach (var sceneItem in scenesToMove)
                     {
-                        File.Delete(documentFilePath);
-                    }
-
-                    // If it's a chapter, also delete the chapter folder
-                    if (item.IsChapter)
-                    {
-                        var chapterFolder = Path.GetDirectoryName(documentFilePath);
-                        if (!string.IsNullOrEmpty(chapterFolder) && Directory.Exists(chapterFolder))
+                        if (sceneItem.Document != null && !string.IsNullOrEmpty(projectDirectory))
                         {
-                            try
-                            {
-                                Directory.Delete(chapterFolder, true);
-                            }
-                            catch (Exception ex)
-                            {
-                            }
+                            MoveFileToTrashcan(sceneItem.Document, projectDirectory);
                         }
                     }
                 }
-                catch (Exception ex)
+
+                // Move document file to Trashcan (don't remove from project)
+                if (!string.IsNullOrEmpty(projectDirectory))
                 {
+                    MoveFileToTrashcan(document, projectDirectory);
                 }
             }
 
@@ -2023,42 +2143,60 @@ public partial class MainWindowViewModel : ViewModelBase
                 SelectedProjectItem = null;
             }
         }
-        // Handle subfolder deletion
+        // Handle subfolder deletion (move all documents to Trashcan, or permanently delete if already in Trashcan)
         else if (item.IsSubfolder)
         {
-            // Delete all documents in the subfolder recursively (including nested subfolders)
-            var documentsToDelete = new List<ProjectTreeItemViewModel>();
-            CollectDocumentsRecursive(item, documentsToDelete);
+            // Collect all documents in the subfolder recursively
+            var documentsToProcess = new List<ProjectTreeItemViewModel>();
+            CollectDocumentsRecursive(item, documentsToProcess);
 
-            foreach (var docItem in documentsToDelete)
+            var projectDirectory = !string.IsNullOrEmpty(CurrentProjectPath)
+                ? Path.GetDirectoryName(CurrentProjectPath) ?? 
+                  Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty
+                : string.Empty;
+
+            // Check if folder is in Trashcan (check if any document is in Trashcan)
+            bool isInTrashcan = documentsToProcess.Any(d => d.Document != null && 
+                !string.IsNullOrEmpty(d.Document.ContentFilePath) && 
+                d.Document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase));
+
+            if (isInTrashcan)
             {
-                if (docItem.Document != null)
+                // Permanently delete all documents
+                foreach (var docItem in documentsToProcess)
                 {
-                    // Remove document from project
-                    _currentProject.Documents.Remove(docItem.Document);
-
-                    // Delete content file if project is saved
-                    if (!string.IsNullOrEmpty(CurrentProjectPath) && !string.IsNullOrEmpty(docItem.Document.ContentFilePath))
+                    if (docItem.Document != null)
                     {
-                        var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? 
-                                              Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-                        var docFilePath = Path.Combine(projectDirectory, docItem.Document.ContentFilePath);
-                        try
+                        _currentProject.Documents.Remove(docItem.Document);
+                        if (!string.IsNullOrEmpty(projectDirectory) && !string.IsNullOrEmpty(docItem.Document.ContentFilePath))
                         {
-                            if (File.Exists(docFilePath))
+                            var docFilePath = Path.Combine(projectDirectory, docItem.Document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                            try
                             {
-                                File.Delete(docFilePath);
+                                if (File.Exists(docFilePath))
+                                {
+                                    File.Delete(docFilePath);
+                                }
                             }
+                            catch { }
                         }
-                        catch (Exception ex)
-                        {
-                        }
+                    }
+                }
+            }
+            else
+            {
+                // Move all documents to Trashcan
+                foreach (var docItem in documentsToProcess)
+                {
+                    if (docItem.Document != null && !string.IsNullOrEmpty(projectDirectory))
+                    {
+                        MoveFileToTrashcan(docItem.Document, projectDirectory);
                     }
                 }
             }
 
             // Clear editor if a document in this folder was selected
-            if (SelectedProjectItem != null && documentsToDelete.Contains(SelectedProjectItem))
+            if (SelectedProjectItem != null && documentsToProcess.Contains(SelectedProjectItem))
             {
                 EditorText = string.Empty;
                 CurrentFilePath = string.Empty;
@@ -2071,6 +2209,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Update document orders in parent folder
         UpdateDocumentOrders(parentFolder);
+
+        // Rebuild the tree to show moved items in Trashcan
+        if (_currentProject != null)
+        {
+            LoadProjectIntoTree(_currentProject);
+        }
 
         // Mark as having unsaved changes
         HasUnsavedChanges = true;
@@ -2089,90 +2233,351 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool ShowDeleteConfirmationDialog(ProjectTreeItemViewModel item)
+    /// <summary>
+    /// Moves a file from Trashcan back to its proper location based on the target folder.
+    /// </summary>
+    private void MoveFileFromTrashcan(Document document, ProjectTreeItemViewModel targetFolder, string projectDirectory)
     {
-        if (_parentWindow == null)
-            return false;
+        if (string.IsNullOrEmpty(document.ContentFilePath) || 
+            !document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            return;
 
-        // Build confirmation message
-        string message;
-        if (item.Document != null)
+        try
         {
-            var itemType = item.Document.Type switch
-            {
-                DocumentType.Chapter => "chapter",
-                DocumentType.Scene => "scene",
-                DocumentType.Character => "character",
-                DocumentType.Location => "location",
-                DocumentType.Note => "note",
-                DocumentType.Research => "research",
-                _ => "item"
-            };
-
-            if (item.IsChapter && item.Children.Any(c => c.IsScene))
-            {
-                var sceneCount = item.Children.Count(c => c.IsScene);
-                message = $"Are you sure you want to delete the {itemType} \"{item.Name}\" and all {sceneCount} scene{(sceneCount == 1 ? "" : "s")} in it?\n\nThis action cannot be undone.";
-            }
-            else
-            {
-                message = $"Are you sure you want to delete the {itemType} \"{item.Name}\"?\n\nThis action cannot be undone.";
-            }
-        }
-        else if (item.IsSubfolder)
-        {
-            var documentsToDelete = new List<ProjectTreeItemViewModel>();
-            CollectDocumentsRecursive(item, documentsToDelete);
-            var docCount = documentsToDelete.Count;
+            // Get the path without "Trashcan/" prefix
+            var relativePath = document.ContentFilePath.Substring("Trashcan/".Length);
+            var normalizedContentPath = relativePath.Replace('\\', '/');
             
-            if (docCount > 0)
+            // Generate the new content file path based on document type and target folder
+            var newContentFilePath = GenerateContentFilePath(document, targetFolder);
+            
+            if (string.IsNullOrEmpty(newContentFilePath))
+                return;
+
+            var sourceFilePath = Path.Combine(projectDirectory, document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+            var targetFilePath = Path.Combine(projectDirectory, newContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+            var targetDirectory = Path.GetDirectoryName(targetFilePath);
+
+            // Ensure target directory exists
+            if (!string.IsNullOrEmpty(targetDirectory) && !Directory.Exists(targetDirectory))
             {
-                message = $"Are you sure you want to delete the folder \"{item.Name}\" and all {docCount} document{(docCount == 1 ? "" : "s")} in it?\n\nThis action cannot be undone.";
+                Directory.CreateDirectory(targetDirectory);
+            }
+
+            // Move the file from Trashcan to the new location
+            if (File.Exists(sourceFilePath))
+            {
+                File.Move(sourceFilePath, targetFilePath, overwrite: true);
+                document.ContentFilePath = newContentFilePath;
+            }
+
+            // If it's a chapter, also move scene files
+            // Note: document.ContentFilePath has already been updated to the new location above
+            if (document.Type == DocumentType.Chapter)
+            {
+                var chapterScenes = _currentProject?.Documents.Where(d => d.ParentId == document.Id).ToList() ?? new List<Document>();
+                foreach (var scene in chapterScenes)
+                {
+                    if (!string.IsNullOrEmpty(scene.ContentFilePath) && 
+                        scene.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Generate scene path based on chapter's new location (document.ContentFilePath is already updated)
+                        var scenePath = GenerateSceneContentFilePath(scene, document);
+                        if (!string.IsNullOrEmpty(scenePath))
+                        {
+                            var sceneSourcePath = Path.Combine(projectDirectory, scene.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                            var sceneTargetPath = Path.Combine(projectDirectory, scenePath.Replace('/', Path.DirectorySeparatorChar));
+                            var sceneTargetDir = Path.GetDirectoryName(sceneTargetPath);
+
+                            if (!string.IsNullOrEmpty(sceneTargetDir) && !Directory.Exists(sceneTargetDir))
+                            {
+                                Directory.CreateDirectory(sceneTargetDir);
+                            }
+
+                            if (File.Exists(sceneSourcePath))
+                            {
+                                File.Move(sceneSourcePath, sceneTargetPath, overwrite: true);
+                                scene.ContentFilePath = scenePath;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // If move fails, try copy and delete
+            try
+            {
+                var newContentFilePath = GenerateContentFilePath(document, targetFolder);
+                if (!string.IsNullOrEmpty(newContentFilePath))
+                {
+                    var sourceFilePath = Path.Combine(projectDirectory, document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                    var targetFilePath = Path.Combine(projectDirectory, newContentFilePath.Replace('/', Path.DirectorySeparatorChar));
+                    var targetDirectory = Path.GetDirectoryName(targetFilePath);
+
+                    if (!string.IsNullOrEmpty(targetDirectory) && !Directory.Exists(targetDirectory))
+                    {
+                        Directory.CreateDirectory(targetDirectory);
+                    }
+
+                    if (File.Exists(sourceFilePath))
+                    {
+                        File.Copy(sourceFilePath, targetFilePath, overwrite: true);
+                        File.Delete(sourceFilePath);
+                        document.ContentFilePath = newContentFilePath;
+                    }
+                }
+            }
+            catch
+            {
+                // If all else fails, just update the ContentFilePath
+                var newContentFilePath = GenerateContentFilePath(document, targetFolder);
+                if (!string.IsNullOrEmpty(newContentFilePath))
+                {
+                    document.ContentFilePath = newContentFilePath;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Generates a content file path based on document type and target folder.
+    /// </summary>
+    private string GenerateContentFilePath(Document document, ProjectTreeItemViewModel targetFolder)
+    {
+        var sanitizedTitle = _projectService.SanitizeFileName(document.Title);
+        var folderPath = targetFolder.IsSubfolder ? targetFolder.FolderPath : string.Empty;
+
+        switch (document.Type)
+        {
+            case DocumentType.Character:
+                if (!string.IsNullOrEmpty(folderPath))
+                {
+                    var sanitizedFolderPath = _projectService.SanitizeFileName(folderPath);
+                    return $"characters/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"characters/{sanitizedTitle}.md";
+
+            case DocumentType.Location:
+                if (!string.IsNullOrEmpty(folderPath))
+                {
+                    var sanitizedFolderPath = _projectService.SanitizeFileName(folderPath);
+                    return $"locations/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"locations/{sanitizedTitle}.md";
+
+            case DocumentType.Research:
+                if (!string.IsNullOrEmpty(folderPath))
+                {
+                    var sanitizedFolderPath = _projectService.SanitizeFileName(folderPath);
+                    return $"research/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"research/{sanitizedTitle}.md";
+
+            case DocumentType.Note:
+                return $"notes/{sanitizedTitle}.md";
+
+            default:
+                return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Gets the folder path within Trashcan from a Trashcan ContentFilePath.
+    /// For example, "Trashcan/locations/subfolder/doc.md" returns "locations/subfolder"
+    /// </summary>
+    private string GetTrashcanFolderPath(string trashcanContentFilePath)
+    {
+        if (string.IsNullOrEmpty(trashcanContentFilePath) || 
+            !trashcanContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        // Remove "Trashcan/" prefix
+        var relativePath = trashcanContentFilePath.Substring("Trashcan/".Length);
+        
+        // Get directory part (everything except filename)
+        var lastSlash = relativePath.LastIndexOf('/');
+        if (lastSlash < 0)
+            return string.Empty; // Document is in root of Trashcan, no folder to remove
+        
+        return relativePath.Substring(0, lastSlash);
+    }
+
+    /// <summary>
+    /// Removes an empty folder from Trashcan if it has no documents.
+    /// </summary>
+    private void RemoveEmptyTrashcanFolder(string trashcanFolderPath)
+    {
+        if (_currentProject == null || string.IsNullOrEmpty(trashcanFolderPath))
+            return;
+
+        // Check if there are any documents left in this Trashcan folder
+        var documentsInFolder = _currentProject.Documents
+            .Where(d => !string.IsNullOrEmpty(d.ContentFilePath) &&
+                       d.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            .Select(d => d.ContentFilePath.Substring("Trashcan/".Length))
+            .Where(path => path.StartsWith(trashcanFolderPath + "/", StringComparison.OrdinalIgnoreCase) ||
+                          path.Equals(trashcanFolderPath, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Console.WriteLine($"[RemoveEmptyTrashcanFolder] Checking folder '{trashcanFolderPath}', found {documentsInFolder.Count} documents");
+
+        // If no documents remain in this folder, we can optionally clean up the folder structure
+        // The tree rebuild will automatically not show empty folders, so this is mainly for file system cleanup
+        if (documentsInFolder.Count == 0)
+        {
+            Console.WriteLine($"[RemoveEmptyTrashcanFolder] Folder '{trashcanFolderPath}' is empty");
+            // Note: We don't delete the folder from the file system here as it will be cleaned up
+            // when the project is saved or when the tree is rebuilt. The tree rebuild will handle
+            // not showing empty folders.
+        }
+    }
+
+    /// <summary>
+    /// Generates a content file path for a scene based on its parent chapter.
+    /// </summary>
+    private string GenerateSceneContentFilePath(Document scene, Document chapter)
+    {
+        if (scene.Type != DocumentType.Scene || chapter.Type != DocumentType.Chapter)
+            return string.Empty;
+
+        var sanitizedSceneTitle = _projectService.SanitizeFileName(scene.Title);
+        var sanitizedChapterTitle = _projectService.SanitizeFileName(chapter.Title);
+
+        if (!string.IsNullOrEmpty(chapter.FolderPath))
+        {
+            var sanitizedFolderPath = _projectService.SanitizeFileName(chapter.FolderPath);
+            return $"Manuscript/{sanitizedFolderPath}/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
+        }
+        return $"Manuscript/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
+    }
+
+    /// <summary>
+    /// Moves a file to the Trashcan folder, preserving the directory structure.
+    /// For example, locations/location1.md becomes Trashcan/locations/location1.md
+    /// </summary>
+    private void MoveFileToTrashcan(Document document, string projectDirectory)
+    {
+        Console.WriteLine($"[MoveFileToTrashcan] Starting - Document: {document.Title}, ContentFilePath: '{document.ContentFilePath}', ProjectDirectory: '{projectDirectory}'");
+        
+        if (string.IsNullOrEmpty(document.ContentFilePath))
+        {
+            Console.WriteLine($"[MoveFileToTrashcan] ContentFilePath is empty, returning");
+            return;
+        }
+
+        // Don't move if already in Trashcan
+        if (document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"[MoveFileToTrashcan] Already in Trashcan, returning");
+            return;
+        }
+
+        try
+        {
+            // Normalize path separators for ContentFilePath (uses forward slashes)
+            var normalizedContentPath = document.ContentFilePath.Replace('\\', '/');
+            // Convert forward slashes to platform-specific path separators for file system operations
+            var sourceFilePath = Path.Combine(projectDirectory, normalizedContentPath.Replace('/', Path.DirectorySeparatorChar));
+            Console.WriteLine($"[MoveFileToTrashcan] Source file path: '{sourceFilePath}'");
+            Console.WriteLine($"[MoveFileToTrashcan] Source file exists: {File.Exists(sourceFilePath)}");
+            
+            // Preserve the directory structure: locations/location1.md -> Trashcan/locations/location1.md
+            // Use forward slashes for ContentFilePath
+            var trashcanPath = "Trashcan/" + normalizedContentPath;
+            var targetFilePath = Path.Combine(projectDirectory, trashcanPath.Replace('/', Path.DirectorySeparatorChar));
+            var targetDirectory = Path.GetDirectoryName(targetFilePath);
+            Console.WriteLine($"[MoveFileToTrashcan] Target file path: '{targetFilePath}'");
+            Console.WriteLine($"[MoveFileToTrashcan] Target directory: '{targetDirectory}'");
+
+            // Update document's ContentFilePath first so it appears in Trashcan even if file move fails
+            document.ContentFilePath = trashcanPath;
+            // Clear cached content so it will reload from the new location
+            // The Content getter will automatically reload from the new file path when accessed
+            Console.WriteLine($"[MoveFileToTrashcan] Updated ContentFilePath to: '{trashcanPath}' (content will reload from new path when accessed)");
+
+            // Only move the file if it exists
+            if (File.Exists(sourceFilePath))
+            {
+                // Ensure target directory exists
+                if (!string.IsNullOrEmpty(targetDirectory) && !Directory.Exists(targetDirectory))
+                {
+                    Directory.CreateDirectory(targetDirectory);
+                    Console.WriteLine($"[MoveFileToTrashcan] Created target directory: '{targetDirectory}'");
+                }
+
+                // Move the file
+                File.Move(sourceFilePath, targetFilePath, overwrite: true);
+                Console.WriteLine($"[MoveFileToTrashcan] Successfully moved file from '{sourceFilePath}' to '{targetFilePath}'");
             }
             else
             {
-                message = $"Are you sure you want to delete the folder \"{item.Name}\"?\n\nThis action cannot be undone.";
+                Console.WriteLine($"[MoveFileToTrashcan] Source file does not exist, skipping file move (ContentFilePath already updated)");
+            }
+
+            // If it's a chapter, also move any remaining files in the chapter folder
+            // (scenes are already handled separately in DeleteItem)
+            if (document.Type == DocumentType.Chapter)
+            {
+                var chapterSourceDir = Path.GetDirectoryName(sourceFilePath);
+                var chapterTargetDir = Path.GetDirectoryName(targetFilePath);
+
+                if (!string.IsNullOrEmpty(chapterSourceDir) && Directory.Exists(chapterSourceDir))
+                {
+                    // Move all remaining files in the chapter folder (in case there are any)
+                    var filesInChapter = Directory.GetFiles(chapterSourceDir, "*", SearchOption.AllDirectories);
+                    foreach (var file in filesInChapter)
+                    {
+                        var relativePath = Path.GetRelativePath(chapterSourceDir, file);
+                        var targetFile = Path.Combine(chapterTargetDir ?? string.Empty, relativePath);
+                        var targetFileDir = Path.GetDirectoryName(targetFile);
+                        
+                        if (!string.IsNullOrEmpty(targetFileDir) && !Directory.Exists(targetFileDir))
+                        {
+                            Directory.CreateDirectory(targetFileDir);
+                        }
+                        
+                        if (File.Exists(file))
+                        {
+                            File.Move(file, targetFile, overwrite: true);
+                        }
+                    }
+                }
             }
         }
-        else
+        catch (Exception ex)
         {
-            message = $"Are you sure you want to delete \"{item.Name}\"?\n\nThis action cannot be undone.";
-        }
+            // If move fails, try copy and delete
+            try
+            {
+                var normalizedContentPath = document.ContentFilePath.Replace('\\', '/');
+                var sourceFilePath = Path.Combine(projectDirectory, normalizedContentPath.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(sourceFilePath))
+                {
+                    var trashcanPath = "Trashcan/" + normalizedContentPath;
+                    var targetFilePath = Path.Combine(projectDirectory, trashcanPath.Replace('/', Path.DirectorySeparatorChar));
+                    var targetDirectory = Path.GetDirectoryName(targetFilePath);
 
-        // Create confirmation dialog using a simple window with UserControl content
-        var dialogContent = new ConfirmDeleteDialog(message);
-        var dialogWindow = new Window
-        {
-            Content = dialogContent,
-            Title = "Confirm Delete",
-            Width = 450,
-            Height = 200,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false,
-            ShowInTaskbar = false,
-            Background = new SolidColorBrush(Colors.White),
-            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light
-        };
-        
-        // Show dialog synchronously - ShowDialog blocks until dialog closes
-        bool dialogResult = false;
-        if (_parentWindow != null)
-        {
-            var result = dialogWindow.ShowDialog<bool>(_parentWindow).GetAwaiter().GetResult();
-            dialogResult = result;
-        }
-        else
-        {
-            dialogWindow.Show();
-            // Wait for window to close
-            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
-            dialogWindow.Closed += (s, e) => tcs.SetResult(dialogContent.Result);
-            dialogResult = tcs.Task.GetAwaiter().GetResult();
-        }
+                    if (!string.IsNullOrEmpty(targetDirectory) && !Directory.Exists(targetDirectory))
+                    {
+                        Directory.CreateDirectory(targetDirectory);
+                    }
 
-        // Return the result
-        return dialogResult;
+                    File.Copy(sourceFilePath, targetFilePath, overwrite: true);
+                    File.Delete(sourceFilePath);
+                    document.ContentFilePath = trashcanPath;
+                }
+            }
+            catch
+            {
+                // If all else fails, just update the ContentFilePath
+                var normalizedContentPath = document.ContentFilePath.Replace('\\', '/');
+                document.ContentFilePath = "Trashcan/" + normalizedContentPath;
+            }
+        }
     }
+
 
     [RelayCommand]
     private async Task OpenRecentProject(string filePath)

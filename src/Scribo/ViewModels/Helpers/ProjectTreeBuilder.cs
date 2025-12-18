@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -34,10 +35,22 @@ public static class ProjectTreeBuilder
         // Build a dictionary of documents by ID for quick lookup
         var documentsById = project.Documents.ToDictionary(d => d.Id);
 
-        // Organize documents hierarchically
-        var chapters = project.Documents.Where(d => d.Type == DocumentType.Chapter).ToList();
-        var scenes = project.Documents.Where(d => d.Type == DocumentType.Scene).ToList();
-        var otherDocuments = project.Documents.Where(d => d.Type != DocumentType.Chapter && d.Type != DocumentType.Scene).ToList();
+        // Separate documents in Trashcan from active documents
+        Console.WriteLine($"[BuildProjectTree] Total documents in project: {project.Documents.Count}");
+        var documentsInTrashcan = project.Documents.Where(d => !string.IsNullOrEmpty(d.ContentFilePath) && d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
+        var activeDocuments = project.Documents.Where(d => string.IsNullOrEmpty(d.ContentFilePath) || !d.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)).ToList();
+        Console.WriteLine($"[BuildProjectTree] Documents in Trashcan: {documentsInTrashcan.Count}");
+        Console.WriteLine($"[BuildProjectTree] Active documents: {activeDocuments.Count}");
+        
+        foreach (var doc in documentsInTrashcan)
+        {
+            Console.WriteLine($"[BuildProjectTree] Trashcan document: {doc.Title}, ContentFilePath: '{doc.ContentFilePath}'");
+        }
+
+        // Organize active documents hierarchically
+        var chapters = activeDocuments.Where(d => d.Type == DocumentType.Chapter).ToList();
+        var scenes = activeDocuments.Where(d => d.Type == DocumentType.Scene).ToList();
+        var otherDocuments = activeDocuments.Where(d => d.Type != DocumentType.Chapter && d.Type != DocumentType.Scene).ToList();
 
         // Always add Manuscript folder (even if empty)
         var manuscriptNode = new ProjectTreeItemViewModel
@@ -64,6 +77,10 @@ public static class ProjectTreeBuilder
             var typeFolder = BuildDocumentTypeFolder(docType, otherDocuments);
             root.Children.Add(typeFolder);
         }
+
+        // Always add Trashcan folder (even if empty)
+        var trashcanNode = BuildTrashcanTree(documentsInTrashcan);
+        root.Children.Add(trashcanNode);
 
         return root;
     }
@@ -217,6 +234,161 @@ public static class ProjectTreeBuilder
         return typeFolder;
     }
 
+    private static ProjectTreeItemViewModel BuildTrashcanTree(List<Document> documentsInTrashcan)
+    {
+        Console.WriteLine($"[BuildTrashcanTree] Starting with {documentsInTrashcan.Count} documents");
+        
+        var trashcanNode = new ProjectTreeItemViewModel
+        {
+            Name = "Trashcan",
+            Icon = "🗑️",
+            IsTrashcanFolder = true
+        };
+
+        // Build a tree structure preserving nested folders
+        // Documents in Trashcan have paths like "Trashcan/locations/location1.md" or "Trashcan/locations/subfolder/doc.md"
+        var folderNodes = new Dictionary<string, ProjectTreeItemViewModel>();
+
+        foreach (var doc in documentsInTrashcan)
+        {
+            Console.WriteLine($"[BuildTrashcanTree] Processing document: {doc.Title}, ContentFilePath: '{doc.ContentFilePath}'");
+            
+            if (string.IsNullOrEmpty(doc.ContentFilePath))
+            {
+                Console.WriteLine($"[BuildTrashcanTree] Skipping document {doc.Title} - ContentFilePath is empty");
+                continue;
+            }
+
+            // Remove "Trashcan/" prefix to get the relative path
+            var relativePath = doc.ContentFilePath.StartsWith("Trashcan/", System.StringComparison.OrdinalIgnoreCase)
+                ? doc.ContentFilePath.Substring("Trashcan/".Length)
+                : doc.ContentFilePath;
+
+            // Split path into parts (e.g., "locations/subfolder/doc.md" -> ["locations", "subfolder"])
+            var pathParts = relativePath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            
+            if (pathParts.Length == 0)
+                continue;
+
+            // Get the filename (last part)
+            var fileName = pathParts[pathParts.Length - 1];
+            
+            // Build folder path up to the document
+            var folderPath = string.Join("/", pathParts.Take(pathParts.Length - 1));
+            
+            // Get or create the folder node
+            ProjectTreeItemViewModel folderNode;
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                // Document is in root of Trashcan
+                folderNode = trashcanNode;
+            }
+            else
+            {
+                if (!folderNodes.ContainsKey(folderPath))
+                {
+                    // Create folder nodes recursively
+                    var currentPath = "";
+                    ProjectTreeItemViewModel parentNode = trashcanNode;
+                    
+                    foreach (var part in pathParts.Take(pathParts.Length - 1))
+                    {
+                        currentPath = string.IsNullOrEmpty(currentPath) ? part : currentPath + "/" + part;
+                        
+                        if (!folderNodes.ContainsKey(currentPath))
+                        {
+                            var newFolderNode = new ProjectTreeItemViewModel
+                            {
+                                Name = part,
+                                Icon = "📁",
+                                FolderPath = currentPath
+                            };
+                            folderNodes[currentPath] = newFolderNode;
+                            parentNode.Children.Add(newFolderNode);
+                        }
+                        
+                        parentNode = folderNodes[currentPath];
+                    }
+                }
+                
+                folderNode = folderNodes[folderPath];
+            }
+
+            // Add document to the folder
+            var docNode = new ProjectTreeItemViewModel
+            {
+                Name = doc.Title,
+                Icon = GetIconForDocumentType(doc.Type),
+                Document = doc
+            };
+            folderNode.Children.Add(docNode);
+            Console.WriteLine($"[BuildTrashcanTree] Added document '{doc.Title}' to folder '{folderNode.Name}' (folderPath: '{folderPath}')");
+        }
+
+        // Sort children in each folder
+        SortTrashcanNode(trashcanNode);
+        
+        // Remove empty folders (folders with no children)
+        RemoveEmptyFolders(trashcanNode);
+        
+        Console.WriteLine($"[BuildTrashcanTree] Completed. Trashcan node has {trashcanNode.Children.Count} children");
+        foreach (var child in trashcanNode.Children)
+        {
+            Console.WriteLine($"[BuildTrashcanTree] Trashcan child: {child.Name} (IsFolder: {child.IsFolder}, Document: {(child.Document != null ? child.Document.Title : "null")})");
+        }
+
+        return trashcanNode;
+    }
+
+    private static void RemoveEmptyFolders(ProjectTreeItemViewModel node)
+    {
+        // Recursively remove empty folders from children
+        var childrenToRemove = new List<ProjectTreeItemViewModel>();
+        
+        foreach (var child in node.Children)
+        {
+            // Recursively process subfolders first
+            if (child.IsFolder)
+            {
+                RemoveEmptyFolders(child);
+                
+                // If folder is now empty (no children), mark it for removal
+                if (child.Children.Count == 0)
+                {
+                    childrenToRemove.Add(child);
+                    Console.WriteLine($"[RemoveEmptyFolders] Marking empty folder '{child.Name}' for removal");
+                }
+            }
+        }
+        
+        // Remove empty folders
+        foreach (var emptyFolder in childrenToRemove)
+        {
+            node.Children.Remove(emptyFolder);
+            Console.WriteLine($"[RemoveEmptyFolders] Removed empty folder '{emptyFolder.Name}'");
+        }
+    }
+
+    private static void SortTrashcanNode(ProjectTreeItemViewModel node)
+    {
+        // Sort: folders first, then documents, both alphabetically
+        var sortedChildren = node.Children
+            .OrderBy(c => c.Document == null ? 0 : 1) // Folders first (Document == null)
+            .ThenBy(c => c.Name)
+            .ToList();
+        
+        node.Children.Clear();
+        foreach (var child in sortedChildren)
+        {
+            node.Children.Add(child);
+            // Recursively sort subfolders
+            if (child.Document == null)
+            {
+                SortTrashcanNode(child);
+            }
+        }
+    }
+
     public static ProjectTreeItemViewModel CreateInitialProjectTree()
     {
         var root = new ProjectTreeItemViewModel
@@ -259,6 +431,13 @@ public static class ProjectTreeBuilder
                     Name = "Notes",
                     Icon = "📁",
                     IsNotesFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
+                    Name = "Trashcan",
+                    Icon = "🗑️",
+                    IsTrashcanFolder = true,
                     Children = new ObservableCollection<ProjectTreeItemViewModel>()
                 }
             }

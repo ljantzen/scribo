@@ -1528,6 +1528,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnEmptyTrashcanClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            vm.EmptyTrashcanCommand.Execute(item);
+        }
+    }
+
     private ProjectTreeItemViewModel? _draggedItem;
     private Point? _dragStartPoint;
     private bool _isDragging = false;
@@ -1631,6 +1640,13 @@ public partial class MainWindow : Window
                             return;
                         }
                         
+                        // Don't allow dropping into Trashcan via drag-and-drop (use delete instead)
+                        if (targetItem.IsTrashcanFolder)
+                        {
+                            e.DragEffects = DragDropEffects.None;
+                            return;
+                        }
+                        
                         // Allow dropping characters on Characters folder or its subfolders
                         if (draggedItem.Document.Type == DocumentType.Character && 
                             (targetItem.IsCharactersFolder || 
@@ -1668,7 +1684,8 @@ public partial class MainWindow : Window
                         }
                         
                         // Allow dropping on folders (for reordering within folder)
-                        if (targetItem.IsFolder && !targetItem.IsRoot)
+                        // Don't allow dropping on Trashcan folder
+                        if (targetItem.IsFolder && !targetItem.IsRoot && !targetItem.IsTrashcanFolder)
                         {
                             e.DragEffects = DragDropEffects.Move;
                             return;
