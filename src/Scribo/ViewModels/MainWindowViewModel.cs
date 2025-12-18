@@ -98,8 +98,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private Project? _currentProject;
     private DispatcherTimer? _idleTimer;
     private DispatcherTimer? _autoSaveTimer;
+    private DispatcherTimer? _timeTrackingTimer;
     private DateTime _lastActivityTime = DateTime.Now;
     private DateTime _lastSaveTime = DateTime.Now;
+    private DateTime _lastTimeTrackingUpdate = DateTime.Now;
+    private bool _isCurrentlyActive = false;
     private const int IdleTimeoutSeconds = 2; // Calculate statistics after 2 seconds of inactivity
     
     // Session statistics tracking
@@ -114,6 +117,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private int _sessionCharactersDeleted = 0;
     private int _previousWordCount = -1; // Use -1 to indicate not initialized
     private int _previousCharacterCount = -1; // Use -1 to indicate not initialized
+    
+    // Daily statistics tracking
+    private string? _currentDateKey = null;
+    private DailyStatistics? _currentDayStats = null;
 
     public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
     {
@@ -130,6 +137,7 @@ public partial class MainWindowViewModel : ViewModelBase
         UpdateRecentProjectsList();
         InitializeIdleStatisticsTimer();
         InitializeAutoSaveTimer();
+        InitializeTimeTrackingTimer();
         InitializeFindReplace();
         InitializeDocumentLinkAutocomplete();
         
@@ -233,6 +241,46 @@ public partial class MainWindowViewModel : ViewModelBase
         };
         _autoSaveTimer.Tick += OnAutoSaveTimerTick;
         _autoSaveTimer.Start();
+    }
+    
+    private void InitializeTimeTrackingTimer()
+    {
+        _timeTrackingTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1) // Update every second
+        };
+        _timeTrackingTimer.Tick += OnTimeTrackingTimerTick;
+        _timeTrackingTimer.Start();
+        _lastTimeTrackingUpdate = DateTime.Now;
+    }
+    
+    private void OnTimeTrackingTimerTick(object? sender, EventArgs e)
+    {
+        if (_currentDayStats == null || _currentProject == null)
+            return;
+        
+        var now = DateTime.Now;
+        var elapsed = now - _lastTimeTrackingUpdate;
+        
+        // Determine if currently active (has been active within idle timeout)
+        var timeSinceLastActivity = now - _lastActivityTime;
+        var wasActive = _isCurrentlyActive;
+        _isCurrentlyActive = timeSinceLastActivity.TotalSeconds < IdleTimeoutSeconds;
+        
+        // Accumulate time for the period that just elapsed
+        if (elapsed.TotalSeconds > 0)
+        {
+            if (wasActive)
+            {
+                _currentDayStats.ActiveTimeSeconds += (long)elapsed.TotalSeconds;
+            }
+            else
+            {
+                _currentDayStats.IdleTimeSeconds += (long)elapsed.TotalSeconds;
+            }
+        }
+        
+        _lastTimeTrackingUpdate = now;
     }
 
     private void OnAutoSaveTimerTick(object? sender, EventArgs e)
@@ -352,18 +400,109 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 _sessionCharactersDeleted += Math.Abs(charChange);
             }
+            
+            // Update daily statistics
+            UpdateDailyStatistics(wordChange, charChange, currentWordCount, currentCharacterCount, statistics.TotalPageCount);
         }
         
         // Update previous counts for next comparison
         _previousWordCount = currentWordCount;
         _previousCharacterCount = currentCharacterCount;
+        
+        // Update daily statistics end counts even if no change detected
+        if (_currentDayStats != null && _currentProject?.Metadata?.Statistics != null)
+        {
+            _currentDayStats.EndWordCount = currentWordCount;
+            _currentDayStats.EndCharacterCount = currentCharacterCount;
+            _currentDayStats.EndPageCount = statistics.TotalPageCount;
+            _currentDayStats.LastActivity = DateTime.Now;
+        }
 
         TotalWordCount = statistics.TotalWordCount;
         TotalCharacterCount = statistics.TotalCharacterCount;
         TotalPageCount = statistics.TotalPageCount;
         
         var targetWordCount = _currentProject?.Metadata?.WordCountTargets?.TargetWordCount;
-        StatisticsText = _statisticsManager.FormatStatisticsText(statistics, targetWordCount, GetSessionStatistics(), GetSessionTrackingStats());
+        var currentDayStats = GetCurrentDayStatistics();
+        var settings = _applicationSettingsService?.LoadSettings();
+        var showActiveIdleTime = settings?.ShowActiveIdleTimeInStatusBar ?? true;
+        StatisticsText = _statisticsManager.FormatStatisticsText(statistics, targetWordCount, GetSessionStatistics(), GetSessionTrackingStats(), currentDayStats, showActiveIdleTime);
+    }
+    
+    private void UpdateDailyStatistics(int wordChange, int charChange, int currentWordCount, int currentCharacterCount, int currentPageCount)
+    {
+        if (_currentDayStats == null || _currentProject?.Metadata == null)
+            return;
+        
+        // Check if we've moved to a new day
+        var today = DateTime.Today;
+        var todayKey = today.ToString("yyyy-MM-dd");
+        
+        if (_currentDateKey != todayKey)
+        {
+            // New day - finalize previous day's stats and start new day
+            if (_currentDayStats != null)
+            {
+                _currentDayStats.EndWordCount = _previousWordCount;
+                _currentDayStats.EndCharacterCount = _previousCharacterCount;
+                _currentDayStats.EndPageCount = _currentProject.Metadata.Statistics?.TotalPageCount ?? 0;
+                _currentDayStats.LastActivity = DateTime.Now;
+            }
+            
+            // Initialize new day
+            InitializeDailyStatistics();
+        }
+        
+        // Update current day statistics
+        if (_currentDayStats != null)
+        {
+            if (wordChange > 0)
+            {
+                _currentDayStats.WordsWritten += wordChange;
+            }
+            else if (wordChange < 0)
+            {
+                _currentDayStats.WordsDeleted += Math.Abs(wordChange);
+            }
+            
+            if (charChange > 0)
+            {
+                _currentDayStats.CharactersWritten += charChange;
+            }
+            else if (charChange < 0)
+            {
+                _currentDayStats.CharactersDeleted += Math.Abs(charChange);
+            }
+            
+            // Update end counts
+            _currentDayStats.EndWordCount = currentWordCount;
+            _currentDayStats.EndCharacterCount = currentCharacterCount;
+            _currentDayStats.EndPageCount = currentPageCount;
+            _currentDayStats.LastActivity = DateTime.Now;
+        }
+    }
+    
+    private DailyStatistics? GetCurrentDayStatistics()
+    {
+        if (_currentDayStats != null)
+        {
+            // Check if we've moved to a new day
+            var today = DateTime.Today;
+            var todayKey = today.ToString("yyyy-MM-dd");
+            
+            if (_currentDateKey == todayKey)
+            {
+                return _currentDayStats;
+            }
+            else
+            {
+                // New day - initialize it
+                InitializeDailyStatistics();
+                return _currentDayStats;
+            }
+        }
+        
+        return null;
     }
     
     private ProjectStatistics GetSessionStatistics()
@@ -400,6 +539,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _sessionCharactersDeleted = 0;
             _previousWordCount = 0; // Set to 0 (not -1) so tracking can start
             _previousCharacterCount = 0; // Set to 0 (not -1) so tracking can start
+            InitializeDailyStatistics();
             return;
         }
         
@@ -417,14 +557,109 @@ public partial class MainWindowViewModel : ViewModelBase
         _sessionWordsDeleted = 0;
         _sessionCharactersWritten = 0;
         _sessionCharactersDeleted = 0;
+        
+        // Initialize daily statistics
+        InitializeDailyStatistics();
+    }
+    
+    private void InitializeDailyStatistics()
+    {
+        if (_currentProject?.Metadata == null)
+            return;
+        
+        var today = DateTime.Today;
+        var todayKey = today.ToString("yyyy-MM-dd");
+        
+        // If we had a previous day, finalize it
+        if (_currentDayStats != null && _currentDateKey != null && _currentDateKey != todayKey)
+        {
+            FinalizeDailyStatistics();
+        }
+        
+        _currentDateKey = todayKey;
+        
+        // Reset time tracking state
+        _lastTimeTrackingUpdate = DateTime.Now;
+        _isCurrentlyActive = false;
+        
+        // Get or create daily statistics for today
+        if (!_currentProject.Metadata.DailyStatistics.ContainsKey(_currentDateKey))
+        {
+            // New day - create new daily statistics
+            var currentStats = _currentProject.Metadata.Statistics;
+            _currentDayStats = new DailyStatistics
+            {
+                Date = today,
+                StartWordCount = currentStats?.TotalWordCount ?? 0,
+                StartCharacterCount = currentStats?.TotalCharacterCount ?? 0,
+                StartPageCount = currentStats?.TotalPageCount ?? 0,
+                EndWordCount = currentStats?.TotalWordCount ?? 0,
+                EndCharacterCount = currentStats?.TotalCharacterCount ?? 0,
+                EndPageCount = currentStats?.TotalPageCount ?? 0,
+                FirstActivity = DateTime.Now,
+                LastActivity = DateTime.Now,
+                ActiveTimeSeconds = 0,
+                IdleTimeSeconds = 0
+            };
+            _currentProject.Metadata.DailyStatistics[_currentDateKey] = _currentDayStats;
+        }
+        else
+        {
+            // Existing day - use existing statistics
+            _currentDayStats = _currentProject.Metadata.DailyStatistics[_currentDateKey];
+            
+            // If start counts are zero but we have current stats, initialize them
+            // This handles the case where daily stats were created but start counts weren't set
+            if (_currentDayStats.StartWordCount == 0 && _currentDayStats.StartCharacterCount == 0)
+            {
+                var currentStats = _currentProject.Metadata.Statistics;
+                _currentDayStats.StartWordCount = currentStats?.TotalWordCount ?? 0;
+                _currentDayStats.StartCharacterCount = currentStats?.TotalCharacterCount ?? 0;
+                _currentDayStats.StartPageCount = currentStats?.TotalPageCount ?? 0;
+            }
+            
+            // Update last activity
+            _currentDayStats.LastActivity = DateTime.Now;
+        }
     }
     
     public void Dispose()
     {
+        // Finalize daily statistics before disposing
+        FinalizeDailyStatistics();
+        
         _idleTimer?.Stop();
         _idleTimer = null;
         _autoSaveTimer?.Stop();
         _autoSaveTimer = null;
+        _timeTrackingTimer?.Stop();
+        _timeTrackingTimer = null;
+    }
+    
+    private void FinalizeDailyStatistics()
+    {
+        if (_currentDayStats != null && _currentProject?.Metadata?.Statistics != null)
+        {
+            // Update time tracking one final time
+            var now = DateTime.Now;
+            var elapsed = now - _lastTimeTrackingUpdate;
+            
+            if (_isCurrentlyActive)
+            {
+                _currentDayStats.ActiveTimeSeconds += (long)elapsed.TotalSeconds;
+            }
+            else
+            {
+                _currentDayStats.IdleTimeSeconds += (long)elapsed.TotalSeconds;
+            }
+            
+            _lastTimeTrackingUpdate = now;
+            
+            _currentDayStats.EndWordCount = _currentProject.Metadata.Statistics.TotalWordCount;
+            _currentDayStats.EndCharacterCount = _currentProject.Metadata.Statistics.TotalCharacterCount;
+            _currentDayStats.EndPageCount = _currentProject.Metadata.Statistics.TotalPageCount;
+            _currentDayStats.LastActivity = DateTime.Now;
+        }
     }
 
     public void SetParentWindow(Window window)
@@ -554,6 +789,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (!string.IsNullOrEmpty(filePath))
             {
+                // Finalize daily statistics before saving
+                FinalizeDailyStatistics();
+                
                 var project = BuildProjectFromCurrentState();
                 _projectService.SaveProject(project, filePath);
                 _currentProject = project;
@@ -1122,6 +1360,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     try
                     {
+                        // Finalize daily statistics before saving
+                        FinalizeDailyStatistics();
+                        
                         _projectService.SaveProject(_currentProject, CurrentProjectPath);
                         _lastSaveTime = DateTime.Now;
                         HasUnsavedChanges = false;

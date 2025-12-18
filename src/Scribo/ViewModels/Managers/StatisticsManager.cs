@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Scribo.Models;
@@ -67,7 +68,7 @@ public class StatisticsManager
         }
     }
 
-    public string FormatStatisticsText(ProjectStatistics? statistics, int? targetWordCount = null, ProjectStatistics? sessionStatistics = null, (int wordsWritten, int wordsDeleted, int charactersWritten, int charactersDeleted)? trackingStats = null)
+    public string FormatStatisticsText(ProjectStatistics? statistics, int? targetWordCount = null, ProjectStatistics? sessionStatistics = null, (int wordsWritten, int wordsDeleted, int charactersWritten, int charactersDeleted)? trackingStats = null, DailyStatistics? dailyStatistics = null, bool showActiveIdleTime = true)
     {
         if (statistics == null)
         {
@@ -77,6 +78,76 @@ public class StatisticsManager
         // Format statistics text for status bar
         // Show word count, character count, and page count
         var text = $"Words: {statistics.TotalWordCount:N0} | Characters: {statistics.TotalCharacterCount:N0} | Pages: {statistics.TotalPageCount}";
+        
+        // Add daily statistics if provided
+        if (dailyStatistics != null)
+        {
+            var dailyWords = dailyStatistics.NetWordChange;
+            var dailyChars = dailyStatistics.NetCharacterChange;
+            var dailyPages = dailyStatistics.NetPageChange;
+            
+            // Show daily stats if there's been any change or time tracked
+            if (dailyWords != 0 || dailyChars != 0 || dailyPages != 0 || dailyStatistics.ActiveTimeSeconds > 0 || dailyStatistics.IdleTimeSeconds > 0)
+            {
+                var dailySign = dailyWords >= 0 ? "+" : "";
+                text += $" | Today: {dailySign}{dailyWords:N0} words";
+                
+                // Add separate tracking if available
+                if (dailyStatistics.WordsWritten > 0 || dailyStatistics.WordsDeleted > 0)
+                {
+                    text += $" (+{dailyStatistics.WordsWritten:N0}/-{dailyStatistics.WordsDeleted:N0})";
+                }
+                
+                // Add time tracking if enabled
+                if (showActiveIdleTime)
+                {
+                    var activeTime = dailyStatistics.ActiveTime;
+                    var idleTime = dailyStatistics.IdleTime;
+                    
+                    if (activeTime.TotalSeconds > 0 || idleTime.TotalSeconds > 0)
+                    {
+                        var timeParts = new List<string>();
+                        
+                        if (activeTime.TotalSeconds > 0)
+                        {
+                            if (activeTime.TotalHours >= 1)
+                            {
+                                timeParts.Add($"{(int)activeTime.TotalHours}h {activeTime.Minutes}m active");
+                            }
+                            else if (activeTime.TotalMinutes >= 1)
+                            {
+                                timeParts.Add($"{activeTime.Minutes}m {activeTime.Seconds}s active");
+                            }
+                            else
+                            {
+                                timeParts.Add($"{activeTime.Seconds}s active");
+                            }
+                        }
+                        
+                        if (idleTime.TotalSeconds > 0)
+                        {
+                            if (idleTime.TotalHours >= 1)
+                            {
+                                timeParts.Add($"{(int)idleTime.TotalHours}h {idleTime.Minutes}m idle");
+                            }
+                            else if (idleTime.TotalMinutes >= 1)
+                            {
+                                timeParts.Add($"{idleTime.Minutes}m {idleTime.Seconds}s idle");
+                            }
+                            else
+                            {
+                                timeParts.Add($"{idleTime.Seconds}s idle");
+                            }
+                        }
+                        
+                        if (timeParts.Count > 0)
+                        {
+                            text += $" | {string.Join(", ", timeParts)}";
+                        }
+                    }
+                }
+            }
+        }
         
         // Add session statistics if provided
         if (sessionStatistics != null)

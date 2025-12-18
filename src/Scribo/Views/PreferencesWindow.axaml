@@ -129,6 +129,8 @@
                          IsChecked="{Binding ShowCharacterCountInStatusBar, Mode=TwoWay}"/>
                 <CheckBox Content="Show Page Count in Status Bar"
                          IsChecked="{Binding ShowPageCountInStatusBar, Mode=TwoWay}"/>
+                <CheckBox Content="Show Active/Idle Time in Status Bar"
+                         IsChecked="{Binding ShowActiveIdleTimeInStatusBar, Mode=TwoWay}"/>
             </StackPanel>
 
             <!-- Startup Settings Section -->

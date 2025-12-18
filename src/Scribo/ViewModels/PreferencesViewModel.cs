@@ -72,6 +72,9 @@ public partial class PreferencesViewModel : ViewModelBase
     private bool showPageCountInStatusBar = false;
 
     [ObservableProperty]
+    private bool showActiveIdleTimeInStatusBar = true;
+
+    [ObservableProperty]
     private bool autoLoadLastProject = false;
 
     [ObservableProperty]
@@ -103,6 +106,7 @@ public partial class PreferencesViewModel : ViewModelBase
         ShowWordCountInStatusBar = settings.ShowWordCountInStatusBar;
         ShowCharacterCountInStatusBar = settings.ShowCharacterCountInStatusBar;
         ShowPageCountInStatusBar = settings.ShowPageCountInStatusBar;
+        ShowActiveIdleTimeInStatusBar = settings.ShowActiveIdleTimeInStatusBar;
         AutoLoadLastProject = settings.AutoLoadLastProject;
 
         // Load keyboard shortcuts
@@ -169,6 +173,7 @@ public partial class PreferencesViewModel : ViewModelBase
             ShowWordCountInStatusBar = ShowWordCountInStatusBar,
             ShowCharacterCountInStatusBar = ShowCharacterCountInStatusBar,
             ShowPageCountInStatusBar = ShowPageCountInStatusBar,
+            ShowActiveIdleTimeInStatusBar = ShowActiveIdleTimeInStatusBar,
             AutoLoadLastProject = AutoLoadLastProject,
             KeyboardShortcuts = GetKeyboardShortcuts()
         };

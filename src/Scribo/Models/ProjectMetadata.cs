@@ -23,6 +23,9 @@ public class ProjectMetadata
     // Project Statistics
     public ProjectStatistics Statistics { get; set; } = new();
 
+    // Daily Statistics - keyed by date (YYYY-MM-DD format)
+    public Dictionary<string, DailyStatistics> DailyStatistics { get; set; } = new();
+
     // Session Information
     public SessionInfo CurrentSession { get; set; } = new();
     public List<SessionInfo> SessionHistory { get; set; } = new();
@@ -73,6 +76,34 @@ public class ProjectStatistics
     public int ParagraphCount { get; set; } = 0;
     public int SentenceCount { get; set; } = 0;
     public DateTime? LastCalculatedAt { get; set; }
+}
+
+public class DailyStatistics
+{
+    public DateTime Date { get; set; }
+    public int StartWordCount { get; set; } = 0;
+    public int StartCharacterCount { get; set; } = 0;
+    public int StartPageCount { get; set; } = 0;
+    public int EndWordCount { get; set; } = 0;
+    public int EndCharacterCount { get; set; } = 0;
+    public int EndPageCount { get; set; } = 0;
+    public int WordsWritten { get; set; } = 0;
+    public int WordsDeleted { get; set; } = 0;
+    public int CharactersWritten { get; set; } = 0;
+    public int CharactersDeleted { get; set; } = 0;
+    public DateTime? FirstActivity { get; set; }
+    public DateTime? LastActivity { get; set; }
+    
+    // Time tracking (stored as total seconds for serialization)
+    public long ActiveTimeSeconds { get; set; } = 0;
+    public long IdleTimeSeconds { get; set; } = 0;
+    
+    public int NetWordChange => EndWordCount - StartWordCount;
+    public int NetCharacterChange => EndCharacterCount - StartCharacterCount;
+    public int NetPageChange => EndPageCount - StartPageCount;
+    
+    public TimeSpan ActiveTime => TimeSpan.FromSeconds(ActiveTimeSeconds);
+    public TimeSpan IdleTime => TimeSpan.FromSeconds(IdleTimeSeconds);
 }
 
 public class SessionInfo
