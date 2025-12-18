@@ -410,6 +410,13 @@ public class ProjectService
 
         foreach (var doc in project.Documents)
         {
+            // Exclude documents in Trashcan from statistics
+            if (!string.IsNullOrEmpty(doc.ContentFilePath) && 
+                doc.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            
             // Access Content property to ensure it's loaded (will load from file if needed)
             var content = doc.Content;
             

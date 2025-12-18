@@ -67,7 +67,7 @@ public class StatisticsManager
         }
     }
 
-    public string FormatStatisticsText(ProjectStatistics? statistics, int? targetWordCount = null)
+    public string FormatStatisticsText(ProjectStatistics? statistics, int? targetWordCount = null, ProjectStatistics? sessionStatistics = null, (int wordsWritten, int wordsDeleted, int charactersWritten, int charactersDeleted)? trackingStats = null)
     {
         if (statistics == null)
         {
@@ -77,6 +77,31 @@ public class StatisticsManager
         // Format statistics text for status bar
         // Show word count, character count, and page count
         var text = $"Words: {statistics.TotalWordCount:N0} | Characters: {statistics.TotalCharacterCount:N0} | Pages: {statistics.TotalPageCount}";
+        
+        // Add session statistics if provided
+        if (sessionStatistics != null)
+        {
+            var sessionWords = sessionStatistics.TotalWordCount;
+            var sessionChars = sessionStatistics.TotalCharacterCount;
+            var sessionPages = sessionStatistics.TotalPageCount;
+            
+            // Only show session stats if there's been any change
+            if (sessionWords != 0 || sessionChars != 0 || sessionPages != 0)
+            {
+                var sessionSign = sessionWords >= 0 ? "+" : "";
+                text += $" | Session: {sessionSign}{sessionWords:N0} words";
+                
+                // Add separate tracking if provided
+                if (trackingStats.HasValue)
+                {
+                    var (wordsWritten, wordsDeleted, charsWritten, charsDeleted) = trackingStats.Value;
+                    if (wordsWritten > 0 || wordsDeleted > 0)
+                    {
+                        text += $" (+{wordsWritten:N0}/-{wordsDeleted:N0})";
+                    }
+                }
+            }
+        }
         
         // If there's a word count target, show progress
         if (targetWordCount.HasValue && targetWordCount.Value > 0)

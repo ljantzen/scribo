@@ -37,7 +37,6 @@ public class Document
     {
         get
         {
-            Console.WriteLine($"[Document.Content GET] Title: {Title}, ContentFilePath: '{ContentFilePath}', ProjectDirectory: '{ProjectDirectory}'");
             
             // If content is already loaded in memory, check if we should reload
             // If cached content is empty and we have a valid file path, try to reload from file
@@ -48,22 +47,18 @@ public class Document
                 {
                     var normalizedContentPath = ContentFilePath.Replace('/', Path.DirectorySeparatorChar);
                     var fullPath = Path.Combine(ProjectDirectory, normalizedContentPath);
-                    Console.WriteLine($"[Document.Content GET] Cached content is empty, checking if file exists: '{fullPath}'");
                     
                     if (File.Exists(fullPath))
                     {
-                        Console.WriteLine($"[Document.Content GET] File exists, clearing cache and reloading...");
                         _content = null; // Clear cache to force reload - this is safe as _content is nullable
                     }
                     else
                     {
-                        Console.WriteLine($"[Document.Content GET] File does not exist, returning cached empty content");
                         return _content;
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"[Document.Content GET] Returning cached content (length: {_content.Length})");
                     return _content;
                 }
             }
@@ -74,35 +69,21 @@ public class Document
                 // Normalize path separators - ContentFilePath uses forward slashes, convert to platform-specific
                 var normalizedContentPath = ContentFilePath.Replace('/', Path.DirectorySeparatorChar);
                 var fullPath = Path.Combine(ProjectDirectory, normalizedContentPath);
-                Console.WriteLine($"[Document.Content GET] Attempting to load from file: '{fullPath}'");
-                Console.WriteLine($"[Document.Content GET] File exists: {File.Exists(fullPath)}");
                 
                 if (File.Exists(fullPath))
                 {
                     try
                     {
                         _content = File.ReadAllText(fullPath);
-                        Console.WriteLine($"[Document.Content GET] Successfully loaded content (length: {_content.Length})");
                         return _content;
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[Document.Content GET] ERROR loading file: {ex.Message}");
-                        Console.WriteLine($"[Document.Content GET] Stack trace: {ex.StackTrace}");
                         return string.Empty;
                     }
                 }
-                else
-                {
-                    Console.WriteLine($"[Document.Content GET] File does not exist at path: '{fullPath}'");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"[Document.Content GET] Missing ContentFilePath or ProjectDirectory - ContentFilePath: '{ContentFilePath}', ProjectDirectory: '{ProjectDirectory}'");
             }
             
-            Console.WriteLine($"[Document.Content GET] Returning empty string");
             return string.Empty;
         }
         set => _content = value;

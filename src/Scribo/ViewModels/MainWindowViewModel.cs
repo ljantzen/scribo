@@ -73,6 +73,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string statisticsText = string.Empty;
 
+    [ObservableProperty]
+    private bool isEditorReadOnly = false;
+
     // View mode properties
     [ObservableProperty]
     private bool isSourceMode = true;
@@ -98,6 +101,19 @@ public partial class MainWindowViewModel : ViewModelBase
     private DateTime _lastActivityTime = DateTime.Now;
     private DateTime _lastSaveTime = DateTime.Now;
     private const int IdleTimeoutSeconds = 2; // Calculate statistics after 2 seconds of inactivity
+    
+    // Session statistics tracking
+    private int _sessionInitialWordCount = 0;
+    private int _sessionInitialCharacterCount = 0;
+    private int _sessionInitialPageCount = 0;
+    
+    // Separate tracking for additions and deletions
+    private int _sessionWordsWritten = 0;
+    private int _sessionWordsDeleted = 0;
+    private int _sessionCharactersWritten = 0;
+    private int _sessionCharactersDeleted = 0;
+    private int _previousWordCount = 0;
+    private int _previousCharacterCount = 0;
 
     public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
     {
@@ -291,6 +307,12 @@ public partial class MainWindowViewModel : ViewModelBase
         var statistics = _statisticsManager.CalculateStatistics(SelectedProjectItem?.Document, EditorText);
         UpdateStatisticsDisplay(statistics);
     }
+    
+    private ProjectStatistics? CalculateStatisticsWithoutDisplay()
+    {
+        _statisticsManager.SetCurrentProject(_currentProject, CurrentProjectPath);
+        return _statisticsManager.CalculateStatistics(SelectedProjectItem?.Document, EditorText);
+    }
 
     private void UpdateStatisticsDisplay(ProjectStatistics? statistics = null)
     {
@@ -305,12 +327,102 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // Track additions and deletions by comparing to previous count
+        var currentWordCount = statistics.TotalWordCount;
+        var currentCharacterCount = statistics.TotalCharacterCount;
+        
+        // Only track changes if we have initialized session statistics (previous counts are set)
+        // This prevents tracking changes during initial load
+        if (_sessionInitialWordCount > 0 || _previousWordCount > 0)
+        {
+            // Calculate changes since last update
+            var wordChange = currentWordCount - _previousWordCount;
+            var charChange = currentCharacterCount - _previousCharacterCount;
+            
+            if (wordChange > 0)
+            {
+                _sessionWordsWritten += wordChange;
+            }
+            else if (wordChange < 0)
+            {
+                _sessionWordsDeleted += Math.Abs(wordChange);
+            }
+            
+            if (charChange > 0)
+            {
+                _sessionCharactersWritten += charChange;
+            }
+            else if (charChange < 0)
+            {
+                _sessionCharactersDeleted += Math.Abs(charChange);
+            }
+        }
+        
+        // Update previous counts for next comparison
+        _previousWordCount = currentWordCount;
+        _previousCharacterCount = currentCharacterCount;
+
         TotalWordCount = statistics.TotalWordCount;
         TotalCharacterCount = statistics.TotalCharacterCount;
         TotalPageCount = statistics.TotalPageCount;
         
         var targetWordCount = _currentProject?.Metadata?.WordCountTargets?.TargetWordCount;
-        StatisticsText = _statisticsManager.FormatStatisticsText(statistics, targetWordCount);
+        StatisticsText = _statisticsManager.FormatStatisticsText(statistics, targetWordCount, GetSessionStatistics(), GetSessionTrackingStats());
+    }
+    
+    private ProjectStatistics GetSessionStatistics()
+    {
+        if (_currentProject?.Metadata?.Statistics == null)
+        {
+            return new ProjectStatistics();
+        }
+        
+        var currentStats = _currentProject.Metadata.Statistics;
+        return new ProjectStatistics
+        {
+            TotalWordCount = currentStats.TotalWordCount - _sessionInitialWordCount,
+            TotalCharacterCount = currentStats.TotalCharacterCount - _sessionInitialCharacterCount,
+            TotalPageCount = currentStats.TotalPageCount - _sessionInitialPageCount
+        };
+    }
+    
+    private (int wordsWritten, int wordsDeleted, int charactersWritten, int charactersDeleted) GetSessionTrackingStats()
+    {
+        return (_sessionWordsWritten, _sessionWordsDeleted, _sessionCharactersWritten, _sessionCharactersDeleted);
+    }
+    
+    private void InitializeSessionStatistics()
+    {
+        if (_currentProject?.Metadata?.Statistics == null)
+        {
+            _sessionInitialWordCount = 0;
+            _sessionInitialCharacterCount = 0;
+            _sessionInitialPageCount = 0;
+            _sessionWordsWritten = 0;
+            _sessionWordsDeleted = 0;
+            _sessionCharactersWritten = 0;
+            _sessionCharactersDeleted = 0;
+            _previousWordCount = 0;
+            _previousCharacterCount = 0;
+            return;
+        }
+        
+        var stats = _currentProject.Metadata.Statistics;
+        _sessionInitialWordCount = stats.TotalWordCount;
+        _sessionInitialCharacterCount = stats.TotalCharacterCount;
+        _sessionInitialPageCount = stats.TotalPageCount;
+        
+        // Initialize previous counts for tracking changes
+        _previousWordCount = stats.TotalWordCount;
+        _previousCharacterCount = stats.TotalCharacterCount;
+        
+        // Reset session tracking
+        _sessionWordsWritten = 0;
+        _sessionWordsDeleted = 0;
+        _sessionCharactersWritten = 0;
+        _sessionCharactersDeleted = 0;
+        
+        Console.WriteLine($"[SessionStats] Initialized - Words: {_sessionInitialWordCount}, Characters: {_sessionInitialCharacterCount}, Pages: {_sessionInitialPageCount}");
     }
     
     public void Dispose()
@@ -357,10 +469,6 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Index the project for search
         _searchIndexService.IndexProject(project);
-        
-        // Calculate initial statistics for new project
-        RecordActivity();
-        CalculateStatistics();
         
         // Open project properties window to set project name
         ShowProjectProperties();
@@ -553,8 +661,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnEditorTextChanged(string value)
     {
-        HasUnsavedChanges = true;
-        RecordActivity(); // Record activity when user types
+        // Don't mark as changed if editor is read-only (Trashcan document)
+        if (!IsEditorReadOnly)
+        {
+            HasUnsavedChanges = true;
+            RecordActivity(); // Record activity when user types
+        }
         
         // Update find/replace document text
         FindReplaceViewModel.SetDocumentText(value);
@@ -712,6 +824,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 Console.WriteLine($"[OnSelectedProjectItemChanged] Document ProjectDirectory: '{document.ProjectDirectory}'");
                 Console.WriteLine($"[OnSelectedProjectItemChanged] CurrentProjectPath: '{CurrentProjectPath}'");
                 
+                // Check if document is in Trashcan and set read-only accordingly
+                var isInTrashcan = !string.IsNullOrEmpty(document.ContentFilePath) && 
+                                   document.ContentFilePath.StartsWith("Trashcan/", StringComparison.OrdinalIgnoreCase);
+                IsEditorReadOnly = isInTrashcan;
+                Console.WriteLine($"[OnSelectedProjectItemChanged] Document is in Trashcan: {isInTrashcan}, IsEditorReadOnly: {IsEditorReadOnly}");
+                
                 // Ensure ProjectDirectory is set if we have a current project path
                 if (string.IsNullOrEmpty(document.ProjectDirectory) && !string.IsNullOrEmpty(CurrentProjectPath))
                 {
@@ -757,15 +875,18 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         else if (value != null && value.Children.Any())
         {
-            // Selected item is a folder, clear the editor
+            // Selected item is a folder, clear the editor and allow editing
             Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is a folder, clearing editor");
             EditorText = string.Empty;
             CurrentFilePath = string.Empty;
+            IsEditorReadOnly = false;
             HasUnsavedChanges = false;
         }
         else
         {
+            // No document selected, allow editing
             Console.WriteLine($"[OnSelectedProjectItemChanged] Selected item is null or has no document/children");
+            IsEditorReadOnly = false;
         }
     }
 
@@ -791,7 +912,9 @@ public partial class MainWindowViewModel : ViewModelBase
             trashcanFolder.IsExpanded = true;
         }
         
-        // Update statistics display after loading project
+        // Calculate initial statistics, initialize session tracking, then update display
+        CalculateStatisticsWithoutDisplay();
+        InitializeSessionStatistics();
         UpdateStatisticsDisplay();
     }
 

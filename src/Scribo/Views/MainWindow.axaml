@@ -181,6 +181,7 @@
                 <Grid Grid.Row="1" IsVisible="{Binding IsSourceMode}">
                     <TextBox x:Name="sourceTextBox"
                              Text="{Binding EditorText, Mode=TwoWay}"
+                             IsReadOnly="{Binding IsEditorReadOnly}"
                              AcceptsReturn="True"
                              AcceptsTab="True"
                              TextWrapping="Wrap"
