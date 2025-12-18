@@ -19,5 +19,6 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.0.7" />
     <PackageReference Include="Avalonia.ReactiveUI" Version="11.0.7" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+    <PackageReference Include="YamlDotNet" Version="16.1.0" />
   </ItemGroup>
 </Project>

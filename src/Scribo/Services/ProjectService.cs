@@ -392,6 +392,19 @@ public class ProjectService
             Order = 0
         };
         project.Documents.Add(note1);
+        
+        // Generate content file paths for all sample documents
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = project.Documents.ToDictionary(d => d.Id);
+        
+        // Generate paths for all documents that don't have one
+        foreach (var document in project.Documents)
+        {
+            if (string.IsNullOrEmpty(document.ContentFilePath))
+            {
+                document.ContentFilePath = GenerateContentFilePath(document, documentsById);
+            }
+        }
     }
 
     public void UpdateProjectStatistics(Project project)
@@ -453,25 +466,25 @@ public class ProjectService
         switch (document.Type)
         {
             case DocumentType.Chapter:
-                // Chapters are folders in Manuscript folder, content goes in a file inside the folder
+                // Chapters are folders in manuscript folder, content goes in a file inside the folder
                 if (!string.IsNullOrEmpty(document.FolderPath))
                 {
                     var sanitizedFolderPath = SanitizeFileName(document.FolderPath);
-                    return $"Manuscript/{sanitizedFolderPath}/{sanitizedTitle}/content.md";
+                    return $"manuscript/{sanitizedFolderPath}/{sanitizedTitle}/content.md";
                 }
-                return $"Manuscript/{sanitizedTitle}/content.md";
+                return $"manuscript/{sanitizedTitle}/content.md";
             
             case DocumentType.Scene:
-                // Scenes go into their parent chapter folder in Manuscript
+                // Scenes go into their parent chapter folder in manuscript
                 if (!string.IsNullOrEmpty(document.ParentId) && documentsById.TryGetValue(document.ParentId, out var parentChapter))
                 {
                     var parentTitle = SanitizeFileName(parentChapter.Title);
                     if (!string.IsNullOrEmpty(parentChapter.FolderPath))
                     {
                         var sanitizedFolderPath = SanitizeFileName(parentChapter.FolderPath);
-                        return $"Manuscript/{sanitizedFolderPath}/{parentTitle}/{sanitizedTitle}.md";
+                        return $"manuscript/{sanitizedFolderPath}/{parentTitle}/{sanitizedTitle}.md";
                     }
-                    return $"Manuscript/{parentTitle}/{sanitizedTitle}.md";
+                    return $"manuscript/{parentTitle}/{sanitizedTitle}.md";
                 }
                 // Fallback: if no parent, put in scenes folder
                 return $"scenes/{sanitizedTitle}.md";

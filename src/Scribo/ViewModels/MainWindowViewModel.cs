@@ -122,6 +122,9 @@ public partial class MainWindowViewModel : ViewModelBase
     // Daily statistics tracking
     private string? _currentDateKey = null;
     private DailyStatistics? _currentDayStats = null;
+    
+    // Store pending expansion states for restoration after tree rebuilds
+    private Dictionary<string, bool>? _pendingExpansionStates = null;
 
     public MainWindowViewModel(PluginManager? pluginManager = null, FileService? fileService = null, ProjectService? projectService = null, MostRecentlyUsedService? mruService = null, SearchIndexService? searchIndexService = null, ApplicationSettingsService? applicationSettingsService = null)
     {
@@ -904,10 +907,11 @@ public partial class MainWindowViewModel : ViewModelBase
         // Update find/replace document text
         FindReplaceViewModel.SetDocumentText(value);
         
-        // Update search index when content changes
+        // Update document when content changes - parse frontmatter and update metadata
         if (SelectedProjectItem?.Document != null)
         {
-            SelectedProjectItem.Document.Content = value;
+            // Set RawContent which will parse frontmatter and update metadata
+            SelectedProjectItem.Document.RawContent = value;
             _searchIndexService.UpdateDocument(SelectedProjectItem.Document);
         }
         
@@ -1064,24 +1068,18 @@ public partial class MainWindowViewModel : ViewModelBase
                     document.ProjectDirectory = projectDirectory;
                 }
                 
-                // Load content - this will get from _content if set, or load from file if ProjectDirectory and ContentFilePath are set
-                // For unsaved projects, content should be in _content already
-                var content = document.Content;
-                
-                // If content is empty and we have a ContentFilePath but ProjectDirectory is not set,
-                // try to set ProjectDirectory from CurrentProjectPath if available
-                if (string.IsNullOrEmpty(content) && !string.IsNullOrEmpty(document.ContentFilePath) && string.IsNullOrEmpty(document.ProjectDirectory))
+                // Load raw content (with frontmatter) for editing
+                // If ProjectDirectory is not set, try to set it from CurrentProjectPath
+                if (string.IsNullOrEmpty(document.ProjectDirectory) && !string.IsNullOrEmpty(CurrentProjectPath))
                 {
-                    if (!string.IsNullOrEmpty(CurrentProjectPath))
-                    {
-                        var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
-                        document.ProjectDirectory = projectDirectory;
-                        // Try loading again
-                        content = document.Content;
-                    }
+                    var projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ?? Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ?? string.Empty;
+                    document.ProjectDirectory = projectDirectory;
                 }
                 
-                EditorText = content;
+                // Get raw content (includes frontmatter) for editing
+                var rawContent = document.RawContent;
+                
+                EditorText = rawContent;
                 CurrentFilePath = document.ContentFilePath;
                 HasUnsavedChanges = false;
             }
@@ -1120,6 +1118,39 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Expand the root node so Manuscript, Characters, Locations, etc. are visible
         root.IsExpanded = true;
+        
+        // Expand Manuscript folder by default (it's the main working area)
+        var manuscriptFolder = root.Children.FirstOrDefault(c => c.IsManuscriptFolder);
+        if (manuscriptFolder != null)
+        {
+            Console.WriteLine($"[LoadProjectIntoTree] Setting Manuscript folder IsExpanded=true (was {manuscriptFolder.IsExpanded})");
+            manuscriptFolder.IsExpanded = true;
+            
+            // Monitor IsExpanded property changes for Manuscript folder to catch TreeView collapsing it
+            manuscriptFolder.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(ProjectTreeItemViewModel.IsExpanded) && manuscriptFolder.IsManuscriptFolder)
+                {
+                    Console.WriteLine($"[LoadProjectIntoTree] Manuscript folder IsExpanded changed to: {manuscriptFolder.IsExpanded}");
+                    // If it was collapsed and we have pending expansion states, restore it
+                    if (!manuscriptFolder.IsExpanded && _pendingExpansionStates != null)
+                    {
+                        if (_pendingExpansionStates.TryGetValue("Manuscript", out var shouldBeExpanded) && shouldBeExpanded)
+                        {
+                            Console.WriteLine($"[LoadProjectIntoTree] Manuscript folder was collapsed, restoring to expanded");
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                manuscriptFolder.IsExpanded = true;
+                            }, DispatcherPriority.Loaded);
+                        }
+                    }
+                }
+            };
+        }
+        else
+        {
+            Console.WriteLine("[LoadProjectIntoTree] Manuscript folder not found!");
+        }
         
         // Expand Trashcan folder if it has items
         var trashcanFolder = root.Children.FirstOrDefault(c => c.IsTrashcanFolder);
@@ -1540,6 +1571,20 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Add to project
         _currentProject.Documents.Add(newScene);
+
+        // Set ProjectDirectory if project has been saved before
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            var projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ?? 
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ?? 
+                                 string.Empty;
+            newScene.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new scene
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newScene.ContentFilePath = _projectService.GenerateContentFilePath(newScene, documentsById);
 
         // Create a new scene node and add it directly to the chapter node's children
         var newSceneNode = new ProjectTreeItemViewModel
@@ -2241,10 +2286,18 @@ public partial class MainWindowViewModel : ViewModelBase
             // We don't clear it here so SaveProject can detect the path change and move the file
         }
 
+        // Save expansion states before rebuilding tree
+        var expansionStates = SaveExpansionStates();
+
         // Rebuild the tree to reflect the changes
         if (_currentProject != null)
         {
             LoadProjectIntoTree(_currentProject);
+            // Restore expansion states after rebuilding - use dispatcher to ensure it happens after UI updates
+            Dispatcher.UIThread.Post(() =>
+            {
+                RestoreExpansionStates(expansionStates);
+            }, DispatcherPriority.Loaded);
         }
 
         // Mark as having unsaved changes
@@ -2314,10 +2367,18 @@ public partial class MainWindowViewModel : ViewModelBase
             SelectedProjectItem = null;
         }
 
+        // Save expansion states before rebuilding tree
+        var expansionStates = SaveExpansionStates();
+
         // Rebuild the tree to show moved items in Trashcan
         if (_currentProject != null)
         {
             LoadProjectIntoTree(_currentProject);
+            // Restore expansion states after rebuilding - use dispatcher to ensure it happens after UI updates
+            Dispatcher.UIThread.Post(() =>
+            {
+                RestoreExpansionStates(expansionStates);
+            }, DispatcherPriority.Loaded);
         }
 
         // Mark as having unsaved changes
@@ -2589,10 +2650,18 @@ public partial class MainWindowViewModel : ViewModelBase
             SelectedProjectItem = null;
         }
 
+        // Save expansion states before rebuilding tree
+        var expansionStates = SaveExpansionStates();
+
         // Rebuild the tree
         if (_currentProject != null)
         {
             LoadProjectIntoTree(_currentProject);
+            // Restore expansion states after rebuilding - use dispatcher to ensure it happens after UI updates
+            Dispatcher.UIThread.Post(() =>
+            {
+                RestoreExpansionStates(expansionStates);
+            }, DispatcherPriority.Loaded);
         }
 
         // Mark as having unsaved changes
@@ -2777,6 +2846,10 @@ public partial class MainWindowViewModel : ViewModelBase
             }
         }
 
+        // Save expansion states before rebuilding tree
+        Console.WriteLine("[DeleteItem] Saving expansion states before deletion");
+        var expansionStates = SaveExpansionStates();
+
         // Remove item from parent's children
         parentFolder.Children.Remove(item);
 
@@ -2786,11 +2859,391 @@ public partial class MainWindowViewModel : ViewModelBase
         // Rebuild the tree to show moved items in Trashcan
         if (_currentProject != null)
         {
+            Console.WriteLine("[DeleteItem] Rebuilding tree");
             LoadProjectIntoTree(_currentProject);
+            // Restore expansion states after rebuilding - use dispatcher to ensure it happens after UI updates
+            // Restore multiple times with delays to ensure it sticks (TreeView might reset expansion when items change)
+            Console.WriteLine("[DeleteItem] Scheduling expansion state restoration");
+            
+            // Store expansion states so PropertyChanged handler can access them
+            _pendingExpansionStates = expansionStates;
+            
+            Dispatcher.UIThread.Post(() =>
+            {
+                Console.WriteLine("[DeleteItem] Executing expansion state restoration (first attempt)");
+                RestoreExpansionStates(expansionStates);
+                
+                // Restore again after a short delay to catch any TreeView updates
+                Dispatcher.UIThread.Post(() =>
+                {
+                    Console.WriteLine("[DeleteItem] Executing expansion state restoration (second attempt)");
+                    RestoreExpansionStates(expansionStates);
+                    
+                    // One more attempt after TreeView has fully processed
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        Console.WriteLine("[DeleteItem] Executing expansion state restoration (third attempt)");
+                        RestoreExpansionStates(expansionStates);
+                        
+                        // Explicitly find and expand Manuscript folder one more time
+                        // Do this multiple times with increasing delays to catch any TreeView updates
+                        if (ProjectTreeItems.Count > 0 && expansionStates.TryGetValue("Manuscript", out var shouldBeExpanded) && shouldBeExpanded)
+                        {
+                            var root = ProjectTreeItems[0];
+                            var manuscriptFolder = root.Children.FirstOrDefault(c => c.IsManuscriptFolder);
+                            if (manuscriptFolder != null)
+                            {
+                                Console.WriteLine($"[DeleteItem] Final Manuscript folder expansion check: IsExpanded={manuscriptFolder.IsExpanded}, setting to True");
+                                manuscriptFolder.IsExpanded = true;
+                                Console.WriteLine($"[DeleteItem] After setting: IsExpanded={manuscriptFolder.IsExpanded}");
+                                
+                                // Also try to find and expand the actual TreeViewItem in the UI
+                                if (_parentWindow is Views.MainWindow mainWindow)
+                                {
+                                    var treeView = mainWindow.FindControl<Avalonia.Controls.TreeView>("projectTreeViewLeft");
+                                    if (treeView != null)
+                                    {
+                                        // Find the TreeViewItem that corresponds to the Manuscript folder
+                                        // Use Avalonia.VisualTree extension methods
+                                        var treeViewItem = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(treeView)
+                                            .OfType<Avalonia.Controls.TreeViewItem>()
+                                            .FirstOrDefault(item => item.DataContext == manuscriptFolder);
+                                        
+                                        if (treeViewItem != null)
+                                        {
+                                            Console.WriteLine($"[DeleteItem] Found TreeViewItem for Manuscript folder, IsExpanded={treeViewItem.IsExpanded}, setting to True");
+                                            treeViewItem.IsExpanded = true;
+                                            Console.WriteLine($"[DeleteItem] TreeViewItem IsExpanded after setting: {treeViewItem.IsExpanded}");
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"[DeleteItem] TreeViewItem for Manuscript folder not found yet, will retry");
+                                        }
+                                    }
+                                }
+                                
+                                // One more check after a longer delay
+                                Dispatcher.UIThread.Post(() =>
+                                {
+                                    var root2 = ProjectTreeItems.Count > 0 ? ProjectTreeItems[0] : null;
+                                    var manuscriptFolder2 = root2?.Children.FirstOrDefault(c => c.IsManuscriptFolder);
+                                    if (manuscriptFolder2 != null)
+                                    {
+                                        Console.WriteLine($"[DeleteItem] Final+1 Manuscript folder expansion check: IsExpanded={manuscriptFolder2.IsExpanded}");
+                                        if (!manuscriptFolder2.IsExpanded)
+                                        {
+                                            Console.WriteLine($"[DeleteItem] Manuscript folder collapsed again, forcing expansion");
+                                            manuscriptFolder2.IsExpanded = true;
+                                            Console.WriteLine($"[DeleteItem] After forcing: IsExpanded={manuscriptFolder2.IsExpanded}");
+                                        }
+                                        
+                                        // Also check TreeViewItem again
+                                        if (_parentWindow is Views.MainWindow mainWindow2)
+                                        {
+                                            var treeView = mainWindow2.FindControl<Avalonia.Controls.TreeView>("projectTreeViewLeft");
+                                            if (treeView != null)
+                                            {
+                                                var treeViewItem = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(treeView)
+                                                    .OfType<Avalonia.Controls.TreeViewItem>()
+                                                    .FirstOrDefault(item => item.DataContext == manuscriptFolder2);
+                                                
+                                                if (treeViewItem != null && !treeViewItem.IsExpanded)
+                                                {
+                                                    Console.WriteLine($"[DeleteItem] TreeViewItem collapsed, forcing expansion");
+                                                    treeViewItem.IsExpanded = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }, DispatcherPriority.Background);
+                            }
+                        }
+                        
+                        // Clear pending states after final restoration
+                        _pendingExpansionStates = null;
+                    }, DispatcherPriority.Render);
+                }, DispatcherPriority.Loaded);
+            }, DispatcherPriority.Loaded);
         }
 
         // Mark as having unsaved changes
         HasUnsavedChanges = true;
+    }
+
+    /// <summary>
+    /// Saves the expansion state of all nodes in the tree, keyed by document ID or folder path.
+    /// </summary>
+    private Dictionary<string, bool> SaveExpansionStates()
+    {
+        var expansionStates = new Dictionary<string, bool>();
+        var rootItem = ProjectTreeItems.FirstOrDefault();
+        if (rootItem != null)
+        {
+            SaveExpansionStatesRecursive(rootItem, expansionStates);
+            // Debug output
+            Console.WriteLine($"[SaveExpansionStates] Saved {expansionStates.Count} expansion states:");
+            foreach (var kvp in expansionStates)
+            {
+                Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+            }
+        }
+        return expansionStates;
+    }
+
+    /// <summary>
+    /// Recursively saves expansion states of tree nodes.
+    /// </summary>
+    private void SaveExpansionStatesRecursive(ProjectTreeItemViewModel item, Dictionary<string, bool> expansionStates)
+    {
+        // Use document ID if available, otherwise use a combination of name and type
+        string key;
+        if (item.Document != null)
+        {
+            key = item.Document.Id;
+        }
+        else if (item.IsManuscriptFolder)
+        {
+            key = "Manuscript";
+            Console.WriteLine($"[SaveExpansionStates] Found Manuscript folder, IsExpanded={item.IsExpanded}");
+        }
+        else if (item.IsCharactersFolder)
+        {
+            key = "Characters";
+        }
+        else if (item.IsLocationsFolder)
+        {
+            key = "Locations";
+        }
+        else if (item.IsResearchFolder)
+        {
+            key = "Research";
+        }
+        else if (item.IsNotesFolder)
+        {
+            key = "Notes";
+        }
+        else if (item.IsTrashcanFolder)
+        {
+            key = "Trashcan";
+        }
+        else if (item.IsSubfolder)
+        {
+            // For subfolders, use folder path
+            key = $"Folder:{item.FolderPath}:{item.FolderDocumentType}";
+        }
+        else
+        {
+            // Fallback: use name
+            key = item.Name;
+        }
+
+        expansionStates[key] = item.IsExpanded;
+
+        // Recursively save children
+        foreach (var child in item.Children)
+        {
+            SaveExpansionStatesRecursive(child, expansionStates);
+        }
+    }
+
+    /// <summary>
+    /// Restores the expansion state of nodes in the tree after rebuilding.
+    /// </summary>
+    private void RestoreExpansionStates(Dictionary<string, bool> expansionStates)
+    {
+        Console.WriteLine($"[RestoreExpansionStates] Restoring {expansionStates.Count} expansion states");
+        var rootItem = ProjectTreeItems.FirstOrDefault();
+        if (rootItem != null)
+        {
+            RestoreExpansionStatesRecursive(rootItem, expansionStates);
+            
+            // Also restore TreeViewItem expansion states directly in the UI
+            RestoreTreeViewItemExpansionStates(rootItem, expansionStates);
+        }
+        else
+        {
+            Console.WriteLine("[RestoreExpansionStates] No root item found!");
+        }
+    }
+    
+    private void RestoreTreeViewItemExpansionStates(ProjectTreeItemViewModel rootItem, Dictionary<string, bool> expansionStates)
+    {
+        if (_parentWindow is not Views.MainWindow mainWindow)
+            return;
+            
+        var treeView = mainWindow.FindControl<Avalonia.Controls.TreeView>("projectTreeViewLeft");
+        if (treeView == null)
+            return;
+        
+        // Find all TreeViewItems and restore their expansion states
+        RestoreTreeViewItemExpansionStatesRecursive(rootItem, treeView, expansionStates);
+    }
+    
+    private void RestoreTreeViewItemExpansionStatesRecursive(ProjectTreeItemViewModel viewModelItem, Avalonia.Controls.TreeView treeView, Dictionary<string, bool> expansionStates)
+    {
+        // Generate the key for this item (same logic as in RestoreExpansionStatesRecursive)
+        string key;
+        if (viewModelItem.Document != null)
+        {
+            key = viewModelItem.Document.Id;
+        }
+        else if (viewModelItem.IsRoot)
+        {
+            key = viewModelItem.Name;
+        }
+        else if (viewModelItem.IsManuscriptFolder)
+        {
+            key = "Manuscript";
+        }
+        else if (viewModelItem.IsCharactersFolder)
+        {
+            key = "Characters";
+        }
+        else if (viewModelItem.IsLocationsFolder)
+        {
+            key = "Locations";
+        }
+        else if (viewModelItem.IsResearchFolder)
+        {
+            key = "Research";
+        }
+        else if (viewModelItem.IsNotesFolder)
+        {
+            key = "Notes";
+        }
+        else if (viewModelItem.IsTrashcanFolder)
+        {
+            key = "Trashcan";
+        }
+        else if (!string.IsNullOrEmpty(viewModelItem.FolderPath))
+        {
+            key = $"Folder:{viewModelItem.FolderPath}";
+        }
+        else
+        {
+            key = viewModelItem.Name;
+        }
+        
+        // Check if this item should be expanded
+        if (expansionStates.TryGetValue(key, out var shouldBeExpanded) && shouldBeExpanded)
+        {
+            // Find the TreeViewItem for this ViewModel item
+            var treeViewItem = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(treeView)
+                .OfType<Avalonia.Controls.TreeViewItem>()
+                .FirstOrDefault(item => item.DataContext == viewModelItem);
+            
+            if (treeViewItem != null)
+            {
+                if (!treeViewItem.IsExpanded)
+                {
+                    Console.WriteLine($"[RestoreTreeViewItemExpansionStates] Found TreeViewItem for {key}, IsExpanded={treeViewItem.IsExpanded}, setting to True");
+                    treeViewItem.IsExpanded = true;
+                    Console.WriteLine($"[RestoreTreeViewItemExpansionStates] TreeViewItem IsExpanded after setting: {treeViewItem.IsExpanded}");
+                }
+            }
+        }
+        
+        // Recursively process children
+        foreach (var child in viewModelItem.Children)
+        {
+            RestoreTreeViewItemExpansionStatesRecursive(child, treeView, expansionStates);
+        }
+    }
+
+    /// <summary>
+    /// Recursively restores expansion states of tree nodes.
+    /// </summary>
+    private void RestoreExpansionStatesRecursive(ProjectTreeItemViewModel item, Dictionary<string, bool> expansionStates)
+    {
+        // Use document ID if available, otherwise use a combination of name and type
+        string key;
+        if (item.Document != null)
+        {
+            key = item.Document.Id;
+        }
+        else if (item.IsManuscriptFolder)
+        {
+            key = "Manuscript";
+            Console.WriteLine($"[RestoreExpansionStates] Found Manuscript folder, key={key}");
+        }
+        else if (item.IsCharactersFolder)
+        {
+            key = "Characters";
+        }
+        else if (item.IsLocationsFolder)
+        {
+            key = "Locations";
+        }
+        else if (item.IsResearchFolder)
+        {
+            key = "Research";
+        }
+        else if (item.IsNotesFolder)
+        {
+            key = "Notes";
+        }
+        else if (item.IsTrashcanFolder)
+        {
+            key = "Trashcan";
+        }
+        else if (item.IsSubfolder)
+        {
+            // For subfolders, use folder path
+            key = $"Folder:{item.FolderPath}:{item.FolderDocumentType}";
+        }
+        else
+        {
+            // Fallback: use name
+            key = item.Name;
+        }
+
+        // Restore expansion state if we have it saved
+        if (expansionStates.TryGetValue(key, out var wasExpanded))
+        {
+            var beforeState = item.IsExpanded;
+            Console.WriteLine($"[RestoreExpansionStates] Restoring {key}: {wasExpanded} (was {beforeState})");
+            item.IsExpanded = wasExpanded;
+            // Verify it was set correctly
+            if (item.IsExpanded != wasExpanded)
+            {
+                Console.WriteLine($"[RestoreExpansionStates] WARNING: Failed to set {key} to {wasExpanded}, current state is {item.IsExpanded}");
+            }
+            else if (item.IsExpanded != beforeState)
+            {
+                Console.WriteLine($"[RestoreExpansionStates] Successfully changed {key} from {beforeState} to {item.IsExpanded}");
+            }
+        }
+        // Special case: if manuscript folder doesn't have a saved state, default to expanded
+        // This ensures it stays open even if expansion state wasn't captured
+        else if (item.IsManuscriptFolder)
+        {
+            Console.WriteLine($"[RestoreExpansionStates] Manuscript folder not in saved states, defaulting to expanded (was {item.IsExpanded})");
+            item.IsExpanded = true;
+            Console.WriteLine($"[RestoreExpansionStates] Manuscript folder IsExpanded after setting: {item.IsExpanded}");
+        }
+        else
+        {
+            Console.WriteLine($"[RestoreExpansionStates] No saved state for {key}, keeping current state: {item.IsExpanded}");
+        }
+
+        // Recursively restore children
+        foreach (var child in item.Children)
+        {
+            RestoreExpansionStatesRecursive(child, expansionStates);
+        }
+        
+        // After restoring children, verify manuscript folder is still expanded
+        if (item.IsManuscriptFolder)
+        {
+            Console.WriteLine($"[RestoreExpansionStates] Manuscript folder IsExpanded after restoring children: {item.IsExpanded}");
+            // Force it to be expanded if it should be
+            if (expansionStates.TryGetValue("Manuscript", out var shouldBeExpanded) && shouldBeExpanded && !item.IsExpanded)
+            {
+                Console.WriteLine($"[RestoreExpansionStates] WARNING: Manuscript folder was collapsed after restoring children, forcing expansion");
+                item.IsExpanded = true;
+                Console.WriteLine($"[RestoreExpansionStates] Manuscript folder IsExpanded after forcing: {item.IsExpanded}");
+            }
+        }
     }
 
     private void CollectDocumentsRecursive(ProjectTreeItemViewModel item, List<ProjectTreeItemViewModel> documents)
@@ -3019,9 +3472,9 @@ public partial class MainWindowViewModel : ViewModelBase
         if (!string.IsNullOrEmpty(chapter.FolderPath))
         {
             var sanitizedFolderPath = _projectService.SanitizeFileName(chapter.FolderPath);
-            return $"Manuscript/{sanitizedFolderPath}/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
+            return $"manuscript/{sanitizedFolderPath}/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
         }
-        return $"Manuscript/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
+        return $"manuscript/{sanitizedChapterTitle}/{sanitizedSceneTitle}.md";
     }
 
     /// <summary>
