@@ -52,6 +52,36 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     private bool isNotesFolder = false;
 
     /// <summary>
+    /// Indicates whether this is the Other folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isOtherFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Timeline folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isTimelineFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Plot folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isPlotFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Object folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isObjectFolder = false;
+
+    /// <summary>
+    /// Indicates whether this is the Entity folder node.
+    /// </summary>
+    [ObservableProperty]
+    private bool isEntityFolder = false;
+
+    /// <summary>
     /// Indicates whether this is the Trashcan folder node.
     /// </summary>
     [ObservableProperty]
@@ -112,12 +142,14 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     /// Indicates whether this is a subfolder (a folder that's not a main type folder).
     /// </summary>
     public bool IsSubfolder => IsFolder && !IsRoot && !IsManuscriptFolder && 
-                               !IsCharactersFolder && !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsTrashcanFolder;
+                               !IsCharactersFolder && !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsOtherFolder && 
+                               !IsTimelineFolder && !IsPlotFolder && !IsObjectFolder && !IsEntityFolder && !IsTrashcanFolder;
 
     /// <summary>
     /// Indicates whether this folder can have subfolders created in it.
     /// </summary>
-    public bool CanCreateSubfolder => IsManuscriptFolder || IsCharactersFolder || IsLocationsFolder || IsResearchFolder || IsNotesFolder || IsSubfolder;
+    public bool CanCreateSubfolder => IsManuscriptFolder || IsCharactersFolder || IsLocationsFolder || IsResearchFolder || IsNotesFolder || 
+                                      IsOtherFolder || IsTimelineFolder || IsPlotFolder || IsObjectFolder || IsEntityFolder || IsSubfolder;
 
     /// <summary>
     /// Indicates whether this subfolder can contain characters.
@@ -140,6 +172,31 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     public bool CanContainNotes => IsNotesFolder || IsResearchFolder || (IsSubfolder && (FolderDocumentType == DocumentType.Note || FolderDocumentType == DocumentType.Research));
 
     /// <summary>
+    /// Indicates whether this folder can contain other documents (Other folder or its subfolders).
+    /// </summary>
+    public bool CanContainOther => IsOtherFolder || (IsSubfolder && FolderDocumentType == DocumentType.Other);
+
+    /// <summary>
+    /// Indicates whether this folder can contain timeline documents (Timeline folder or its subfolders).
+    /// </summary>
+    public bool CanContainTimeline => IsTimelineFolder || (IsSubfolder && FolderDocumentType == DocumentType.Timeline);
+
+    /// <summary>
+    /// Indicates whether this folder can contain plot documents (Plot folder or its subfolders).
+    /// </summary>
+    public bool CanContainPlot => IsPlotFolder || (IsSubfolder && FolderDocumentType == DocumentType.Plot);
+
+    /// <summary>
+    /// Indicates whether this folder can contain object documents (Object folder or its subfolders).
+    /// </summary>
+    public bool CanContainObject => IsObjectFolder || (IsSubfolder && FolderDocumentType == DocumentType.Object);
+
+    /// <summary>
+    /// Indicates whether this folder can contain entity documents (Entity folder or its subfolders).
+    /// </summary>
+    public bool CanContainEntity => IsEntityFolder || (IsSubfolder && FolderDocumentType == DocumentType.Entity);
+
+    /// <summary>
     /// Indicates whether this item can be renamed (documents and subfolders).
     /// </summary>
     public bool CanRename => Document != null || IsSubfolder;
@@ -149,5 +206,6 @@ public partial class ProjectTreeItemViewModel : ObservableObject
     /// </summary>
     public bool CanDelete => (Document != null || IsSubfolder) && 
                             !IsRoot && !IsManuscriptFolder && !IsCharactersFolder && 
-                            !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsTrashcanFolder;
+                            !IsLocationsFolder && !IsResearchFolder && !IsNotesFolder && !IsOtherFolder && 
+                            !IsTimelineFolder && !IsPlotFolder && !IsObjectFolder && !IsEntityFolder && !IsTrashcanFolder;
 }

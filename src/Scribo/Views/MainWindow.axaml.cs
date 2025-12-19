@@ -1446,6 +1446,106 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnAddOtherClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.AddOtherCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnAddTimelineClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.AddTimelineCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnAddPlotClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.AddPlotCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnAddObjectClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.AddObjectCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private void OnAddEntityClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
+        {
+            e.Handled = true;
+            
+            // Close the context menu
+            var contextMenu = menuItem.Parent as ContextMenu;
+            contextMenu?.Close();
+            
+            vm.AddEntityCommand.Execute(item);
+            
+            // Focus the rename TextBox after a brief delay
+            Dispatcher.UIThread.Post(() =>
+            {
+                FocusRenameTextBox();
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
     private void OnCreateSubfolderClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (sender is MenuItem menuItem && menuItem.DataContext is ProjectTreeItemViewModel item && DataContext is MainWindowViewModel vm)
@@ -1944,20 +2044,93 @@ public partial class MainWindow : Window
                             return;
                         }
                         
-                        // Allow dropping on folders (for reordering within folder)
-                        // Don't allow dropping on Trashcan folder
-                        if (targetItem.IsFolder && !targetItem.IsRoot && !targetItem.IsTrashcanFolder)
+                        // Allow dropping timeline documents on Timeline folder or its subfolders
+                        if (draggedItem.Document.Type == DocumentType.Timeline && 
+                            (targetItem.IsTimelineFolder || 
+                             (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Timeline)))
                         {
                             e.DragEffects = DragDropEffects.Move;
                             return;
                         }
                         
-                        // Allow dropping on documents to reorder within same parent
+                        // Allow dropping plot documents on Plot folder or its subfolders
+                        if (draggedItem.Document.Type == DocumentType.Plot && 
+                            (targetItem.IsPlotFolder || 
+                             (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Plot)))
+                        {
+                            e.DragEffects = DragDropEffects.Move;
+                            return;
+                        }
+                        
+                        // Allow dropping object documents on Object folder or its subfolders
+                        if (draggedItem.Document.Type == DocumentType.Object && 
+                            (targetItem.IsObjectFolder || 
+                             (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Object)))
+                        {
+                            e.DragEffects = DragDropEffects.Move;
+                            return;
+                        }
+                        
+                        // Allow dropping entity documents on Entity folder or its subfolders
+                        if (draggedItem.Document.Type == DocumentType.Entity && 
+                            (targetItem.IsEntityFolder || 
+                             (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Entity)))
+                        {
+                            e.DragEffects = DragDropEffects.Move;
+                            return;
+                        }
+                        
+                        // Allow dropping other documents on Other folder or its subfolders
+                        if (draggedItem.Document.Type == DocumentType.Other && 
+                            (targetItem.IsOtherFolder || 
+                             (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Other)))
+                        {
+                            e.DragEffects = DragDropEffects.Move;
+                            return;
+                        }
+                        
+                        // Allow dropping on folders (for reordering within folder) - but only if same document type
+                        // Don't allow dropping on Trashcan folder
+                        if (targetItem.IsFolder && !targetItem.IsRoot && !targetItem.IsTrashcanFolder)
+                        {
+                            // Check if the target folder can contain the dragged document type
+                            bool canContainType = false;
+                            var draggedType = draggedItem.Document.Type;
+                            
+                            if (draggedType == DocumentType.Character && targetItem.CanContainCharacters)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Location && targetItem.CanContainLocations)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Research && (targetItem.IsResearchFolder || (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Research)))
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Note && targetItem.CanContainNotes)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Timeline && targetItem.CanContainTimeline)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Plot && targetItem.CanContainPlot)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Object && targetItem.CanContainObject)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Entity && targetItem.CanContainEntity)
+                                canContainType = true;
+                            else if (draggedType == DocumentType.Other && targetItem.CanContainOther)
+                                canContainType = true;
+                            
+                            if (canContainType)
+                            {
+                                e.DragEffects = DragDropEffects.Move;
+                                return;
+                            }
+                        }
+                        
+                        // Allow dropping on documents to reorder within same parent - but only if same document type
                         if (targetItem.Document != null)
                         {
                             var targetParent = FindParentFolder(targetItem);
                             var draggedParent = FindParentFolder(draggedItem);
-                            if (targetParent != null && targetParent == draggedParent)
+                            // Only allow if same parent AND same document type
+                            if (targetParent != null && targetParent == draggedParent && 
+                                draggedItem.Document.Type == targetItem.Document.Type)
                             {
                                 e.DragEffects = DragDropEffects.Move;
                                 return;
@@ -2036,6 +2209,51 @@ public partial class MainWindow : Window
                         return;
                     }
                     
+                    // Handle moving timeline documents to Timeline folder or subfolder
+                    if (draggedItem.Document.Type == DocumentType.Timeline && 
+                        (targetItem.IsTimelineFolder || 
+                         (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Timeline)))
+                    {
+                        vm.MoveDocumentToFolder(draggedItem, targetItem);
+                        return;
+                    }
+                    
+                    // Handle moving plot documents to Plot folder or subfolder
+                    if (draggedItem.Document.Type == DocumentType.Plot && 
+                        (targetItem.IsPlotFolder || 
+                         (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Plot)))
+                    {
+                        vm.MoveDocumentToFolder(draggedItem, targetItem);
+                        return;
+                    }
+                    
+                    // Handle moving object documents to Object folder or subfolder
+                    if (draggedItem.Document.Type == DocumentType.Object && 
+                        (targetItem.IsObjectFolder || 
+                         (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Object)))
+                    {
+                        vm.MoveDocumentToFolder(draggedItem, targetItem);
+                        return;
+                    }
+                    
+                    // Handle moving entity documents to Entity folder or subfolder
+                    if (draggedItem.Document.Type == DocumentType.Entity && 
+                        (targetItem.IsEntityFolder || 
+                         (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Entity)))
+                    {
+                        vm.MoveDocumentToFolder(draggedItem, targetItem);
+                        return;
+                    }
+                    
+                    // Handle moving other documents to Other folder or subfolder
+                    if (draggedItem.Document.Type == DocumentType.Other && 
+                        (targetItem.IsOtherFolder || 
+                         (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Other)))
+                    {
+                        vm.MoveDocumentToFolder(draggedItem, targetItem);
+                        return;
+                    }
+                    
                     // Handle dropping into Trashcan folder or its subfolders
                     if (targetItem.IsTrashcanFolder || IsTrashcanSubfolder(targetItem))
                     {
@@ -2050,16 +2268,46 @@ public partial class MainWindow : Window
                     if (targetItem.IsFolder && !targetItem.IsRoot)
                     {
                         // Dropped on a folder - add to end of that folder
-                        targetParent = targetItem;
-                        targetIndex = targetItem.Children.Count;
+                        // But only if the folder can contain this document type
+                        bool canContainType = false;
+                        var draggedType = draggedItem.Document.Type;
+                        
+                        if (draggedType == DocumentType.Character && targetItem.CanContainCharacters)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Location && targetItem.CanContainLocations)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Research && (targetItem.IsResearchFolder || (targetItem.IsSubfolder && targetItem.FolderDocumentType == DocumentType.Research)))
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Note && targetItem.CanContainNotes)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Timeline && targetItem.CanContainTimeline)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Plot && targetItem.CanContainPlot)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Object && targetItem.CanContainObject)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Entity && targetItem.CanContainEntity)
+                            canContainType = true;
+                        else if (draggedType == DocumentType.Other && targetItem.CanContainOther)
+                            canContainType = true;
+                        
+                        if (canContainType)
+                        {
+                            targetParent = targetItem;
+                            targetIndex = targetItem.Children.Count;
+                        }
                     }
                     else if (targetItem.Document != null)
                     {
                         // Dropped on a document - reorder within same parent
-                        targetParent = FindParentFolder(targetItem);
-                        if (targetParent != null)
+                        // But only if same document type
+                        if (draggedItem.Document.Type == targetItem.Document.Type)
                         {
-                            targetIndex = targetParent.Children.IndexOf(targetItem);
+                            targetParent = FindParentFolder(targetItem);
+                            if (targetParent != null)
+                            {
+                                targetIndex = targetParent.Children.IndexOf(targetItem);
+                            }
                         }
                     }
 

@@ -20,6 +20,7 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
 
     private List<Document> _allDocuments = new();
     private string _currentQuery = string.Empty;
+    private DocumentType? _filterDocumentType = null; // Filter by document type for metadata fields
 
     public void SetDocuments(List<Document> documents)
     {
@@ -32,6 +33,14 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
             IsVisible = false;
             Suggestions.Clear();
         }
+    }
+
+    /// <summary>
+    /// Sets the document type filter for metadata field autocomplete.
+    /// </summary>
+    public void SetDocumentTypeFilter(DocumentType? documentType)
+    {
+        _filterDocumentType = documentType;
     }
 
     public void UpdateQuery(string query)
@@ -51,7 +60,16 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
     {
         Suggestions.Clear();
 
-        if (_allDocuments.Count == 0)
+        // Filter documents by type if filter is set
+        var documentsToSearch = _allDocuments;
+        if (_filterDocumentType.HasValue)
+        {
+            documentsToSearch = _allDocuments
+                .Where(d => d.Type == _filterDocumentType.Value)
+                .ToList();
+        }
+
+        if (documentsToSearch.Count == 0)
         {
             IsVisible = false;
             return;
@@ -60,7 +78,7 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(_currentQuery))
         {
             // Show all documents if no query (limit to 20)
-            foreach (var doc in _allDocuments.OrderBy(d => d.Title).Take(20))
+            foreach (var doc in documentsToSearch.OrderBy(d => d.Title).Take(20))
             {
                 Suggestions.Add(doc);
             }
@@ -72,16 +90,16 @@ public partial class DocumentLinkAutocompleteViewModel : ViewModelBase
             var query = _currentQuery;
             
             // Prioritize: exact matches, then starts with, then contains
-            var exactMatches = _allDocuments
+            var exactMatches = documentsToSearch
                 .Where(d => d.Title.Equals(query, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(d => d.Title);
                 
-            var startsWithMatches = _allDocuments
+            var startsWithMatches = documentsToSearch
                 .Where(d => !d.Title.Equals(query, StringComparison.OrdinalIgnoreCase) &&
                            d.Title.StartsWith(queryLower, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(d => d.Title);
                 
-            var containsMatches = _allDocuments
+            var containsMatches = documentsToSearch
                 .Where(d => !d.Title.Equals(query, StringComparison.OrdinalIgnoreCase) &&
                            !d.Title.StartsWith(queryLower, StringComparison.OrdinalIgnoreCase) &&
                            d.Title.Contains(queryLower, StringComparison.OrdinalIgnoreCase))

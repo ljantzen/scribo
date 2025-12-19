@@ -33,6 +33,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly StatisticsManager _statisticsManager;
     private readonly MarkdownRenderer _markdownRenderer;
     private readonly ApplicationSettingsService _applicationSettingsService;
+    private readonly MetadataReferenceService _metadataReferenceService;
     private FileDialogService? _fileDialogService;
     private Window? _parentWindow;
     private SearchWindow? _searchWindow;
@@ -135,6 +136,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _searchIndexService = searchIndexService ?? new SearchIndexService();
         _applicationSettingsService = applicationSettingsService ?? new ApplicationSettingsService();
         _documentLinkService = new DocumentLinkService();
+        _metadataReferenceService = new MetadataReferenceService();
         _statisticsManager = new StatisticsManager(_projectService);
         _markdownRenderer = new MarkdownRenderer(_documentLinkService);
         InitializeProjectTree();
@@ -908,10 +910,14 @@ public partial class MainWindowViewModel : ViewModelBase
         FindReplaceViewModel.SetDocumentText(value);
         
         // Update document when content changes - parse frontmatter and update metadata
-        if (SelectedProjectItem?.Document != null)
+        if (SelectedProjectItem?.Document != null && _currentProject != null)
         {
             // Set RawContent which will parse frontmatter and update metadata
             SelectedProjectItem.Document.RawContent = value;
+            
+            // Validate metadata references after parsing
+            ValidateMetadataReferences(SelectedProjectItem.Document);
+            
             _searchIndexService.UpdateDocument(SelectedProjectItem.Document);
         }
         
@@ -1107,6 +1113,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public void LoadProjectIntoTree(Project project)
     {
         _currentProject = project;
+        
+        // Update metadata reference service with current project
+        _metadataReferenceService.SetProject(project);
         
         // Update autocomplete documents when project is loaded
         UpdateAutocompleteDocuments();
@@ -1586,6 +1595,8 @@ public partial class MainWindowViewModel : ViewModelBase
         var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
         newScene.ContentFilePath = _projectService.GenerateContentFilePath(newScene, documentsById);
 
+        // Document will be saved after user renames it (in CommitRename)
+
         // Create a new scene node and add it directly to the chapter node's children
         var newSceneNode = new ProjectTreeItemViewModel
         {
@@ -1672,6 +1683,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Add to project
         _currentProject.Documents.Add(newCharacter);
+
+        // Set ProjectDirectory if project has been saved before
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            var projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ??
+                                 string.Empty;
+            newCharacter.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new character
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newCharacter.ContentFilePath = _projectService.GenerateContentFilePath(newCharacter, documentsById);
+
+        // Document will be saved after user renames it (in CommitRename)
 
         // Create a new character node and add it directly to the Characters folder
         var newCharacterNode = new ProjectTreeItemViewModel
@@ -1760,6 +1787,22 @@ public partial class MainWindowViewModel : ViewModelBase
         // Add to project
         _currentProject.Documents.Add(newLocation);
 
+        // Set ProjectDirectory if project has been saved before
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            var projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ??
+                                 string.Empty;
+            newLocation.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new location
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newLocation.ContentFilePath = _projectService.GenerateContentFilePath(newLocation, documentsById);
+
+        // Document will be saved after user renames it (in CommitRename)
+
         // Create a new location node and add it directly to the Locations folder
         var newLocationNode = new ProjectTreeItemViewModel
         {
@@ -1787,6 +1830,292 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // Trigger rename mode for the newly added location
         StartRename(newLocationNode);
+
+        // Mark as having unsaved changes
+        HasUnsavedChanges = true;
+    }
+
+    [RelayCommand]
+    private void AddOther(ProjectTreeItemViewModel? folderNode)
+    {
+        if (folderNode == null)
+        {
+            // Find the Other folder if no folder specified
+            folderNode = ProjectTreeItems.FirstOrDefault()?.Children
+                .FirstOrDefault(c => c.IsOtherFolder);
+        }
+
+        // Check if this is Other folder or a subfolder that can contain other documents
+        if (folderNode == null || (!folderNode.IsOtherFolder && folderNode.FolderDocumentType != DocumentType.Other))
+        {
+            // Fallback: try to find Other folder
+            folderNode = ProjectTreeItems.FirstOrDefault()?.Children
+                .FirstOrDefault(c => c.IsOtherFolder);
+            if (folderNode == null)
+                return;
+        }
+
+        // Ensure we have a current project
+        if (_currentProject == null)
+        {
+            _currentProject = _projectService.CreateNewProject(
+                ProjectTreeItems.FirstOrDefault()?.Name ?? "Untitled Project");
+        }
+
+        // Generate a unique title
+        var otherTitle = "Untitled Other";
+        var counter = 1;
+        while (_currentProject.Documents.Any(d => d.Type == DocumentType.Other && d.Title == otherTitle))
+        {
+            otherTitle = $"Untitled Other {counter}";
+            counter++;
+        }
+
+        // Determine folder path
+        var folderPath = folderNode.IsOtherFolder ? string.Empty : folderNode.FolderPath;
+
+        // Determine order (number of existing other documents in this folder)
+        var existingOtherInFolder = folderNode.Children
+            .Where(c => c.Document?.Type == DocumentType.Other)
+            .Count();
+
+        // Create new other document
+        var newOther = new Document
+        {
+            Title = otherTitle,
+            Type = DocumentType.Other,
+            FolderPath = folderPath,
+            Content = string.Empty,
+            Order = existingOtherInFolder
+        };
+
+        // Add to project
+        _currentProject.Documents.Add(newOther);
+
+        // Set ProjectDirectory if project has been saved before
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            var projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ??
+                                 string.Empty;
+            newOther.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new other document
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newOther.ContentFilePath = _projectService.GenerateContentFilePath(newOther, documentsById);
+
+        // Document will be saved after user renames it (in CommitRename)
+
+        // Create a new other node and add it directly to the Other folder
+        var newOtherNode = new ProjectTreeItemViewModel
+        {
+            Name = otherTitle,
+            Icon = GetIconForDocumentType(newOther.Type),
+            Document = newOther
+        };
+        
+        // Expand the parent folder if it's not already expanded
+        folderNode.IsExpanded = true;
+        
+        // Expand the top-level Other folder if it's closed
+        var rootNode = ProjectTreeItems.FirstOrDefault();
+        if (rootNode != null)
+        {
+            var otherFolder = rootNode.Children.FirstOrDefault(c => c.IsOtherFolder);
+            if (otherFolder != null)
+            {
+                otherFolder.IsExpanded = true;
+            }
+        }
+        
+        // Add to the Other folder's children
+        folderNode.Children.Add(newOtherNode);
+
+        // Trigger rename mode for the newly added other document
+        StartRename(newOtherNode);
+
+        // Mark as having unsaved changes
+        HasUnsavedChanges = true;
+    }
+
+    [RelayCommand]
+    private void AddTimeline(ProjectTreeItemViewModel? folderNode)
+    {
+        AddDocumentType(folderNode, DocumentType.Timeline, "Untitled Timeline", "Timeline");
+    }
+
+    [RelayCommand]
+    private void AddPlot(ProjectTreeItemViewModel? folderNode)
+    {
+        AddDocumentType(folderNode, DocumentType.Plot, "Untitled Plot", "Plot");
+    }
+
+    [RelayCommand]
+    private void AddObject(ProjectTreeItemViewModel? folderNode)
+    {
+        AddDocumentType(folderNode, DocumentType.Object, "Untitled Object", "Object");
+    }
+
+    [RelayCommand]
+    private void AddEntity(ProjectTreeItemViewModel? folderNode)
+    {
+        AddDocumentType(folderNode, DocumentType.Entity, "Untitled Entity", "Entity");
+    }
+
+    private void AddDocumentType(ProjectTreeItemViewModel? folderNode, DocumentType docType, string defaultTitle, string folderName)
+    {
+        if (folderNode == null)
+        {
+            // Find the appropriate folder if no folder specified
+            folderNode = ProjectTreeItems.FirstOrDefault()?.Children
+                .FirstOrDefault(c => 
+                    (docType == DocumentType.Timeline && c.IsTimelineFolder) ||
+                    (docType == DocumentType.Plot && c.IsPlotFolder) ||
+                    (docType == DocumentType.Object && c.IsObjectFolder) ||
+                    (docType == DocumentType.Entity && c.IsEntityFolder));
+        }
+
+        // Check if this is the correct folder or a subfolder that can contain this document type
+        bool isValidFolder = false;
+        if (docType == DocumentType.Timeline)
+        {
+            isValidFolder = folderNode != null && (folderNode.IsTimelineFolder || folderNode.FolderDocumentType == DocumentType.Timeline);
+        }
+        else if (docType == DocumentType.Plot)
+        {
+            isValidFolder = folderNode != null && (folderNode.IsPlotFolder || folderNode.FolderDocumentType == DocumentType.Plot);
+        }
+        else if (docType == DocumentType.Object)
+        {
+            isValidFolder = folderNode != null && (folderNode.IsObjectFolder || folderNode.FolderDocumentType == DocumentType.Object);
+        }
+        else if (docType == DocumentType.Entity)
+        {
+            isValidFolder = folderNode != null && (folderNode.IsEntityFolder || folderNode.FolderDocumentType == DocumentType.Entity);
+        }
+
+        if (!isValidFolder)
+        {
+            // Fallback: try to find the correct folder
+            var rootNode = ProjectTreeItems.FirstOrDefault();
+            if (rootNode != null)
+            {
+                if (docType == DocumentType.Timeline)
+                    folderNode = rootNode.Children.FirstOrDefault(c => c.IsTimelineFolder);
+                else if (docType == DocumentType.Plot)
+                    folderNode = rootNode.Children.FirstOrDefault(c => c.IsPlotFolder);
+                else if (docType == DocumentType.Object)
+                    folderNode = rootNode.Children.FirstOrDefault(c => c.IsObjectFolder);
+                else if (docType == DocumentType.Entity)
+                    folderNode = rootNode.Children.FirstOrDefault(c => c.IsEntityFolder);
+            }
+            if (folderNode == null)
+                return;
+        }
+
+        // Ensure we have a current project
+        if (_currentProject == null)
+        {
+            _currentProject = _projectService.CreateNewProject(
+                ProjectTreeItems.FirstOrDefault()?.Name ?? "Untitled Project");
+        }
+
+        // Generate a unique title
+        var docTitle = defaultTitle;
+        var counter = 1;
+        while (_currentProject.Documents.Any(d => d.Type == docType && d.Title == docTitle))
+        {
+            docTitle = $"{defaultTitle} {counter}";
+            counter++;
+        }
+
+        // Determine folder path
+        var folderPath = (docType == DocumentType.Timeline && folderNode.IsTimelineFolder) ||
+                         (docType == DocumentType.Plot && folderNode.IsPlotFolder) ||
+                         (docType == DocumentType.Object && folderNode.IsObjectFolder) ||
+                         (docType == DocumentType.Entity && folderNode.IsEntityFolder)
+            ? string.Empty 
+            : folderNode.FolderPath;
+
+        // Determine order (number of existing documents in this folder)
+        var existingDocsInFolder = folderNode.Children
+            .Where(c => c.Document?.Type == docType)
+            .Count();
+
+        // Create new document
+        var newDoc = new Document
+        {
+            Title = docTitle,
+            Type = docType,
+            FolderPath = folderPath,
+            Content = string.Empty,
+            Order = existingDocsInFolder
+        };
+
+        // Add to project
+        _currentProject.Documents.Add(newDoc);
+
+        // Set ProjectDirectory if project has been saved before
+        string? projectDirectory = null;
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ??
+                                 string.Empty;
+            newDoc.ProjectDirectory = projectDirectory;
+        }
+        else if (!string.IsNullOrEmpty(CurrentProjectPath))
+        {
+            // Also try CurrentProjectPath as fallback
+            projectDirectory = Path.GetDirectoryName(CurrentProjectPath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(CurrentProjectPath)) ??
+                                 string.Empty;
+            newDoc.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new document
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newDoc.ContentFilePath = _projectService.GenerateContentFilePath(newDoc, documentsById);
+
+        // Create a new document node and add it directly to the folder
+        var newDocNode = new ProjectTreeItemViewModel
+        {
+            Name = docTitle,
+            Icon = GetIconForDocumentType(newDoc.Type),
+            Document = newDoc
+        };
+        
+        // Expand the parent folder if it's not already expanded
+        folderNode.IsExpanded = true;
+        
+        // Expand the top-level folder if it's closed
+        var rootNodeForExpansion = ProjectTreeItems.FirstOrDefault();
+        if (rootNodeForExpansion != null)
+        {
+            ProjectTreeItemViewModel? typeFolder = null;
+            if (docType == DocumentType.Timeline)
+                typeFolder = rootNodeForExpansion.Children.FirstOrDefault(c => c.IsTimelineFolder);
+            else if (docType == DocumentType.Plot)
+                typeFolder = rootNodeForExpansion.Children.FirstOrDefault(c => c.IsPlotFolder);
+            else if (docType == DocumentType.Object)
+                typeFolder = rootNodeForExpansion.Children.FirstOrDefault(c => c.IsObjectFolder);
+            else if (docType == DocumentType.Entity)
+                typeFolder = rootNodeForExpansion.Children.FirstOrDefault(c => c.IsEntityFolder);
+            
+            if (typeFolder != null)
+            {
+                typeFolder.IsExpanded = true;
+            }
+        }
+        
+        // Add to the folder's children
+        folderNode.Children.Add(newDocNode);
+        
+        // Trigger rename mode for the newly added document
+        StartRename(newDocNode);
 
         // Mark as having unsaved changes
         HasUnsavedChanges = true;
@@ -1858,6 +2187,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Add to project
         _currentProject.Documents.Add(newNote);
+
+        // Set ProjectDirectory if project has been saved before
+        if (!string.IsNullOrEmpty(_currentProject.FilePath))
+        {
+            var projectDirectory = Path.GetDirectoryName(_currentProject.FilePath) ??
+                                 Path.GetDirectoryName(Path.GetFullPath(_currentProject.FilePath)) ??
+                                 string.Empty;
+            newNote.ProjectDirectory = projectDirectory;
+        }
+
+        // Generate content file path for the new note
+        // Build a dictionary of documents by ID for quick lookup (needed for parent relationships)
+        var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+        newNote.ContentFilePath = _projectService.GenerateContentFilePath(newNote, documentsById);
+
+        // Document will be saved after user renames it (in CommitRename)
 
         // Create a new note node and add it directly to the folder
         var newNoteNode = new ProjectTreeItemViewModel
@@ -1931,6 +2276,26 @@ public partial class MainWindowViewModel : ViewModelBase
         else if (parentFolder?.IsNotesFolder == true)
         {
             folderType = DocumentType.Note;
+        }
+        else if (parentFolder?.IsTimelineFolder == true)
+        {
+            folderType = DocumentType.Timeline;
+        }
+        else if (parentFolder?.IsPlotFolder == true)
+        {
+            folderType = DocumentType.Plot;
+        }
+        else if (parentFolder?.IsObjectFolder == true)
+        {
+            folderType = DocumentType.Object;
+        }
+        else if (parentFolder?.IsEntityFolder == true)
+        {
+            folderType = DocumentType.Entity;
+        }
+        else if (parentFolder?.IsOtherFolder == true)
+        {
+            folderType = DocumentType.Other;
         }
         else if (parentFolder?.FolderDocumentType != null)
         {
@@ -2201,6 +2566,36 @@ public partial class MainWindowViewModel : ViewModelBase
         else if (docType == DocumentType.Note && 
                  (targetFolder.IsNotesFolder || targetFolder.IsResearchFolder || 
                   (targetFolder.IsSubfolder && (targetFolder.FolderDocumentType == DocumentType.Note || targetFolder.FolderDocumentType == DocumentType.Research))))
+        {
+            isValidTarget = true;
+        }
+        else if (docType == DocumentType.Timeline && 
+                 (targetFolder.IsTimelineFolder || 
+                  (targetFolder.IsSubfolder && targetFolder.FolderDocumentType == DocumentType.Timeline)))
+        {
+            isValidTarget = true;
+        }
+        else if (docType == DocumentType.Plot && 
+                 (targetFolder.IsPlotFolder || 
+                  (targetFolder.IsSubfolder && targetFolder.FolderDocumentType == DocumentType.Plot)))
+        {
+            isValidTarget = true;
+        }
+        else if (docType == DocumentType.Object && 
+                 (targetFolder.IsObjectFolder || 
+                  (targetFolder.IsSubfolder && targetFolder.FolderDocumentType == DocumentType.Object)))
+        {
+            isValidTarget = true;
+        }
+        else if (docType == DocumentType.Entity && 
+                 (targetFolder.IsEntityFolder || 
+                  (targetFolder.IsSubfolder && targetFolder.FolderDocumentType == DocumentType.Entity)))
+        {
+            isValidTarget = true;
+        }
+        else if (docType == DocumentType.Other && 
+                 (targetFolder.IsOtherFolder || 
+                  (targetFolder.IsSubfolder && targetFolder.FolderDocumentType == DocumentType.Other)))
         {
             isValidTarget = true;
         }
@@ -2528,7 +2923,35 @@ public partial class MainWindowViewModel : ViewModelBase
         // Update the document title if this is a document node
         if (item.Document != null)
         {
+            var oldTitle = item.Document.Title;
             item.Document.Title = newName;
+            
+            // If this is a new document (just created, not yet saved to disk), save it now after renaming
+            if (!string.IsNullOrEmpty(_currentProject?.FilePath) && 
+                !string.IsNullOrEmpty(item.Document.ProjectDirectory) && 
+                !string.IsNullOrEmpty(item.Document.ContentFilePath))
+            {
+                // Check if file doesn't exist yet (new document)
+                var normalizedContentPath = item.Document.ContentFilePath.Replace('/', Path.DirectorySeparatorChar);
+                var fullPath = Path.Combine(item.Document.ProjectDirectory, normalizedContentPath);
+                
+                if (!File.Exists(fullPath))
+                {
+                    // Regenerate ContentFilePath with new title
+                    var documentsById = _currentProject.Documents.ToDictionary(d => d.Id);
+                    item.Document.ContentFilePath = _projectService.GenerateContentFilePath(item.Document, documentsById);
+                    
+                    // Save the document now that it has its final name
+                    try
+                    {
+                        item.Document.SaveContent();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[CommitRename] Failed to save document after rename: {ex.Message}");
+                    }
+                }
+            }
             
             // Don't clear ContentFilePath - let SaveProject detect the path change
             // by comparing the current ContentFilePath with the expected path generated
@@ -2681,7 +3104,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Don't allow deleting root or main type folders
         if (item.IsRoot || item.IsManuscriptFolder || item.IsCharactersFolder || 
-            item.IsLocationsFolder || item.IsResearchFolder || item.IsNotesFolder || item.IsTrashcanFolder)
+            item.IsLocationsFolder || item.IsResearchFolder || item.IsNotesFolder || item.IsOtherFolder || 
+            item.IsTimelineFolder || item.IsPlotFolder || item.IsObjectFolder || item.IsEntityFolder || item.IsTrashcanFolder)
             return;
 
         // Find the parent folder
@@ -3022,6 +3446,26 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             key = "Notes";
         }
+        else if (item.IsOtherFolder)
+        {
+            key = "Other";
+        }
+        else if (item.IsTimelineFolder)
+        {
+            key = "Timeline";
+        }
+        else if (item.IsPlotFolder)
+        {
+            key = "Plot";
+        }
+        else if (item.IsObjectFolder)
+        {
+            key = "Object";
+        }
+        else if (item.IsEntityFolder)
+        {
+            key = "Entity";
+        }
         else if (item.IsTrashcanFolder)
         {
             key = "Trashcan";
@@ -3111,6 +3555,26 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             key = "Notes";
         }
+        else if (viewModelItem.IsOtherFolder)
+        {
+            key = "Other";
+        }
+        else if (viewModelItem.IsTimelineFolder)
+        {
+            key = "Timeline";
+        }
+        else if (viewModelItem.IsPlotFolder)
+        {
+            key = "Plot";
+        }
+        else if (viewModelItem.IsObjectFolder)
+        {
+            key = "Object";
+        }
+        else if (viewModelItem.IsEntityFolder)
+        {
+            key = "Entity";
+        }
         else if (viewModelItem.IsTrashcanFolder)
         {
             key = "Trashcan";
@@ -3181,6 +3645,26 @@ public partial class MainWindowViewModel : ViewModelBase
         else if (item.IsNotesFolder)
         {
             key = "Notes";
+        }
+        else if (item.IsOtherFolder)
+        {
+            key = "Other";
+        }
+        else if (item.IsTimelineFolder)
+        {
+            key = "Timeline";
+        }
+        else if (item.IsPlotFolder)
+        {
+            key = "Plot";
+        }
+        else if (item.IsObjectFolder)
+        {
+            key = "Object";
+        }
+        else if (item.IsEntityFolder)
+        {
+            key = "Entity";
         }
         else if (item.IsTrashcanFolder)
         {
@@ -3722,6 +4206,82 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+        }
+    }
+
+    /// <summary>
+    /// Validates metadata references in a document to ensure they point to actual documents.
+    /// Logs warnings for invalid references but doesn't prevent saving.
+    /// </summary>
+    private void ValidateMetadataReferences(Document document)
+    {
+        if (_currentProject == null)
+            return;
+
+        // Validate POV reference (should be a Character)
+        if (!string.IsNullOrWhiteSpace(document.Pov))
+        {
+            if (!_metadataReferenceService.IsValidCharacterReference(document.Pov, _currentProject))
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: POV '{document.Pov}' does not reference a valid Character document");
+            }
+        }
+
+        // Validate Focus reference (should be a Character)
+        if (!string.IsNullOrWhiteSpace(document.Focus))
+        {
+            if (!_metadataReferenceService.IsValidCharacterReference(document.Focus, _currentProject))
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: Focus '{document.Focus}' does not reference a valid Character document");
+            }
+        }
+
+        // Validate Characters array (should all be Characters)
+        if (document.Characters != null && document.Characters.Count > 0)
+        {
+            var invalidCharacters = _metadataReferenceService.GetInvalidCharacterReferences(document.Characters, _currentProject);
+            if (invalidCharacters.Count > 0)
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: The following character references are invalid: {string.Join(", ", invalidCharacters)}");
+            }
+        }
+
+        // Validate Timeline reference (should be a Timeline document)
+        if (!string.IsNullOrWhiteSpace(document.Timeline))
+        {
+            if (!_metadataReferenceService.IsValidTimelineReference(document.Timeline, _currentProject))
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: Timeline '{document.Timeline}' does not reference a valid Timeline document");
+            }
+        }
+
+        // Validate Plot reference (should be a Plot document)
+        if (!string.IsNullOrWhiteSpace(document.Plot))
+        {
+            if (!_metadataReferenceService.IsValidPlotReference(document.Plot, _currentProject))
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: Plot '{document.Plot}' does not reference a valid Plot document");
+            }
+        }
+
+        // Validate Objects array (should all be Object documents)
+        if (document.Objects != null && document.Objects.Count > 0)
+        {
+            var invalidObjects = _metadataReferenceService.GetInvalidObjectReferences(document.Objects, _currentProject);
+            if (invalidObjects.Count > 0)
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: The following object references are invalid: {string.Join(", ", invalidObjects)}");
+            }
+        }
+
+        // Validate Entities array (should all be Entity documents)
+        if (document.Entities != null && document.Entities.Count > 0)
+        {
+            var invalidEntities = _metadataReferenceService.GetInvalidEntityReferences(document.Entities, _currentProject);
+            if (invalidEntities.Count > 0)
+            {
+                Console.WriteLine($"[MetadataValidation] Warning: The following entity references are invalid: {string.Join(", ", invalidEntities)}");
+            }
         }
     }
 

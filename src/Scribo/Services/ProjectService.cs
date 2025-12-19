@@ -516,6 +516,38 @@ public class ProjectService
             case DocumentType.Note:
                 return $"notes/{sanitizedTitle}.md";
             
+            case DocumentType.Timeline:
+                if (!string.IsNullOrEmpty(document.FolderPath))
+                {
+                    var sanitizedFolderPath = SanitizeFileName(document.FolderPath);
+                    return $"timeline/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"timeline/{sanitizedTitle}.md";
+            
+            case DocumentType.Plot:
+                if (!string.IsNullOrEmpty(document.FolderPath))
+                {
+                    var sanitizedFolderPath = SanitizeFileName(document.FolderPath);
+                    return $"plot/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"plot/{sanitizedTitle}.md";
+            
+            case DocumentType.Object:
+                if (!string.IsNullOrEmpty(document.FolderPath))
+                {
+                    var sanitizedFolderPath = SanitizeFileName(document.FolderPath);
+                    return $"object/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"object/{sanitizedTitle}.md";
+            
+            case DocumentType.Entity:
+                if (!string.IsNullOrEmpty(document.FolderPath))
+                {
+                    var sanitizedFolderPath = SanitizeFileName(document.FolderPath);
+                    return $"entity/{sanitizedFolderPath}/{sanitizedTitle}.md";
+                }
+                return $"entity/{sanitizedTitle}.md";
+            
             case DocumentType.Other:
             default:
                 return $"other/{sanitizedTitle}.md";

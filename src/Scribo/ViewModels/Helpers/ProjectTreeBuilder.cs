@@ -71,7 +71,12 @@ public static class ProjectTreeBuilder
             DocumentType.Character,
             DocumentType.Location,
             DocumentType.Research,
-            DocumentType.Note
+            DocumentType.Note,
+            DocumentType.Timeline,
+            DocumentType.Plot,
+            DocumentType.Object,
+            DocumentType.Entity,
+            DocumentType.Other
         };
 
         foreach (var docType in documentTypes)
@@ -185,6 +190,21 @@ public static class ProjectTreeBuilder
                 break;
             case DocumentType.Note:
                 typeFolder.IsNotesFolder = true;
+                break;
+            case DocumentType.Timeline:
+                typeFolder.IsTimelineFolder = true;
+                break;
+            case DocumentType.Plot:
+                typeFolder.IsPlotFolder = true;
+                break;
+            case DocumentType.Object:
+                typeFolder.IsObjectFolder = true;
+                break;
+            case DocumentType.Entity:
+                typeFolder.IsEntityFolder = true;
+                break;
+            case DocumentType.Other:
+                typeFolder.IsOtherFolder = true;
                 break;
         }
 
@@ -425,6 +445,41 @@ public static class ProjectTreeBuilder
                 },
                 new()
                 {
+                    Name = "Timeline",
+                    Icon = "📁",
+                    IsTimelineFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
+                    Name = "Plot",
+                    Icon = "📁",
+                    IsPlotFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
+                    Name = "Object",
+                    Icon = "📁",
+                    IsObjectFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
+                    Name = "Entity",
+                    Icon = "📁",
+                    IsEntityFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
+                    Name = "Other",
+                    Icon = "📁",
+                    IsOtherFolder = true,
+                    Children = new ObservableCollection<ProjectTreeItemViewModel>()
+                },
+                new()
+                {
                     Name = "Trashcan",
                     Icon = "🗑️",
                     IsTrashcanFolder = true,
@@ -443,6 +498,10 @@ public static class ProjectTreeBuilder
             DocumentType.Location => "Locations",
             DocumentType.Research => "Research",
             DocumentType.Note => "Notes",
+            DocumentType.Timeline => "Timeline",
+            DocumentType.Plot => "Plot",
+            DocumentType.Object => "Object",
+            DocumentType.Entity => "Entity",
             DocumentType.Other => "Other",
             _ => "Documents"
         };
@@ -458,6 +517,11 @@ public static class ProjectTreeBuilder
             DocumentType.Research => "🔬",
             DocumentType.Character => "👤",
             DocumentType.Location => "📍",
+            DocumentType.Timeline => "⏱️",
+            DocumentType.Plot => "📊",
+            DocumentType.Object => "🔧",
+            DocumentType.Entity => "🏛️",
+            DocumentType.Other => "📋",
             _ => "📄"
         };
     }

@@ -184,16 +184,16 @@ public class DocumentLinkAutocompleteHandler
 
         // Find the last [[ before the caret
         var lastBracketIndex = textBeforeCaret.LastIndexOf("[[");
-
+        
         if (lastBracketIndex >= 0)
         {
             var absoluteBracketIndex = searchStart + lastBracketIndex;
-
+            
             // Calculate caret position relative to the [[
             // caretIndex is the position after the last typed character
             // If we just typed [[, caretIndex would be 2 (after both brackets)
             var caretOffsetFromBracketStart = caretIndex - absoluteBracketIndex;
-
+            
             // Only show autocomplete if caret is immediately after [[ (user just typed it)
             // Don't show if caret is at position 0 or far from [[ (likely programmatic load)
             // Allow showing if caret is at [[ position + 2 or more (user typed [[ and possibly more)
@@ -203,27 +203,31 @@ public class DocumentLinkAutocompleteHandler
                 // Look for ]] after the [[
                 var textAfterBracket = text.Substring(absoluteBracketIndex + 2);
                 var closingBracketIndex = textAfterBracket.IndexOf("]]");
-
+                
                 // Only show autocomplete if:
                 // 1. No closing ]] found anywhere after [[, OR
                 // 2. Closing ]] exists but is after the caret position
                 if (closingBracketIndex < 0 || closingBracketIndex >= caretOffsetFromBracketStart - 2)
                 {
+                    // Check if we're in a metadata field (frontmatter) and determine document type filter
+                    DocumentType? documentTypeFilter = DetectMetadataFieldContext(text, absoluteBracketIndex);
+                    vm.DocumentLinkAutocompleteViewModel.SetDocumentTypeFilter(documentTypeFilter);
+                    
                     // Extract query text between [[ and caret
                     var queryStart = absoluteBracketIndex + 2; // After [[
                     var queryLength = Math.Max(0, caretIndex - queryStart);
-
+                    
                     if (queryStart <= text.Length)
                     {
                         var actualQueryLength = Math.Min(queryLength, text.Length - queryStart);
                         var query = actualQueryLength > 0 ? text.Substring(queryStart, actualQueryLength) : string.Empty;
-
+                        
                         // Don't show autocomplete if query contains ]]
                         if (!query.Contains("]]"))
                         {
                             // Update autocomplete with query (this will show popup if there are suggestions)
                             vm.DocumentLinkAutocompleteViewModel.UpdateQuery(query);
-
+                            
                             // Update popup position after a brief delay to ensure UI is updated
                             Dispatcher.UIThread.Post(() =>
                             {
@@ -235,6 +239,9 @@ public class DocumentLinkAutocompleteHandler
                 }
             }
         }
+        
+        // Clear document type filter when not in a [[...]] block
+        vm.DocumentLinkAutocompleteViewModel.SetDocumentTypeFilter(null);
 
         // Hide autocomplete if we're not inside [[...]] or if we've closed it
         vm.DocumentLinkAutocompleteViewModel.Hide();
@@ -452,5 +459,76 @@ public class DocumentLinkAutocompleteHandler
 
         // Ensure popup is visible
         popup.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Detects if we're in a metadata field context and returns the appropriate document type filter.
+    /// </summary>
+    private DocumentType? DetectMetadataFieldContext(string text, int bracketIndex)
+    {
+        // Check if we're in frontmatter (between --- delimiters)
+        var textBeforeBracket = text.Substring(0, bracketIndex);
+        var frontmatterStart = textBeforeBracket.LastIndexOf("---");
+        if (frontmatterStart < 0)
+            return null; // Not in frontmatter
+        
+        // Check if there's a closing --- after the bracket (if so, we're not in frontmatter)
+        var textAfterBracket = text.Substring(bracketIndex);
+        var frontmatterEnd = textAfterBracket.IndexOf("---");
+        if (frontmatterEnd >= 0)
+            return null; // Past frontmatter
+        
+        // We're in frontmatter, now check which field we're in
+        // Look backwards from bracket to find the field name
+        var frontmatterSection = text.Substring(frontmatterStart, bracketIndex - frontmatterStart);
+        
+        // Find the last newline before the bracket
+        var lastNewlineIndex = frontmatterSection.LastIndexOf('\n');
+        if (lastNewlineIndex < 0)
+            return null;
+        
+        // Get the line containing the bracket
+        var lineStart = lastNewlineIndex + 1;
+        var lineEnd = frontmatterSection.Length;
+        var line = frontmatterSection.Substring(lineStart, lineEnd - lineStart);
+        
+        // Check for metadata field patterns
+        // Format: fieldname: value or fieldname: [value1, value2] or fieldname: [[value]]
+        if (line.Contains("pov:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Character;
+        }
+        
+        if (line.Contains("focus:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Character;
+        }
+        
+        if (line.Contains("characters:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Character;
+        }
+        
+        if (line.Contains("timeline:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Timeline;
+        }
+        
+        if (line.Contains("plot:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Plot;
+        }
+        
+        if (line.Contains("objects:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Object;
+        }
+        
+        if (line.Contains("entities:", StringComparison.OrdinalIgnoreCase))
+        {
+            return DocumentType.Entity;
+        }
+        
+        return null; // No specific filter
     }
 }

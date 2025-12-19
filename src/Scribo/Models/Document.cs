@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Serialization;
+using Scribo.Services;
 
 namespace Scribo.Models;
 
@@ -34,43 +35,43 @@ public class Document
 
     // Frontmatter metadata fields
     /// <summary>
-    /// Point of view character for this document.
+    /// Point of view character for this document. Should reference a Character document by name.
     /// </summary>
     [JsonIgnore]
     public string? Pov { get; set; }
 
     /// <summary>
-    /// Focus or main subject of this document.
+    /// Focus or main subject of this document. Should reference a Character document by name.
     /// </summary>
     [JsonIgnore]
     public string? Focus { get; set; }
 
     /// <summary>
-    /// List of characters mentioned or featured in this document.
+    /// List of characters mentioned or featured in this document. Should reference Character documents by name.
     /// </summary>
     [JsonIgnore]
     public List<string> Characters { get; set; } = new();
 
     /// <summary>
-    /// Timeline reference for this document.
+    /// Timeline reference for this document. Should reference a Timeline document by name.
     /// </summary>
     [JsonIgnore]
     public string? Timeline { get; set; }
 
     /// <summary>
-    /// Plot thread or arc this document belongs to.
+    /// Plot thread or arc this document belongs to. Should reference a Plot document by name.
     /// </summary>
     [JsonIgnore]
     public string? Plot { get; set; }
 
     /// <summary>
-    /// List of objects mentioned in this document.
+    /// List of objects mentioned in this document. Should reference Object documents by name.
     /// </summary>
     [JsonIgnore]
     public List<string> Objects { get; set; } = new();
 
     /// <summary>
-    /// List of entities (organizations, groups, etc.) mentioned in this document.
+    /// List of entities (organizations, groups, etc.) mentioned in this document. Should reference Entity documents by name.
     /// </summary>
     [JsonIgnore]
     public List<string> Entities { get; set; } = new();
@@ -185,27 +186,28 @@ public class Document
                 ModifiedAt = updated.Value;
             }
 
-            Pov = _frontmatterService.GetValue<string>(frontmatter, "pov");
-            Focus = _frontmatterService.GetValue<string>(frontmatter, "focus");
-            Timeline = _frontmatterService.GetValue<string>(frontmatter, "timeline");
-            Plot = _frontmatterService.GetValue<string>(frontmatter, "plot");
+            // Parse metadata fields, extracting document names from [[DocumentLink]] syntax
+            Pov = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "pov"));
+            Focus = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "focus"));
+            Timeline = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "timeline"));
+            Plot = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "plot"));
 
             var characters = _frontmatterService.GetValue<List<string>>(frontmatter, "characters");
             if (characters != null)
             {
-                Characters = characters;
+                Characters = characters.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var objects = _frontmatterService.GetValue<List<string>>(frontmatter, "objects");
             if (objects != null)
             {
-                Objects = objects;
+                Objects = objects.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var entities = _frontmatterService.GetValue<List<string>>(frontmatter, "entities");
             if (entities != null)
             {
-                Entities = entities;
+                Entities = entities.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var mentions = _frontmatterService.GetValue<List<string>>(frontmatter, "mentions");
@@ -332,27 +334,28 @@ public class Document
                 ModifiedAt = updated.Value;
             }
 
-            Pov = _frontmatterService.GetValue<string>(frontmatter, "pov");
-            Focus = _frontmatterService.GetValue<string>(frontmatter, "focus");
-            Timeline = _frontmatterService.GetValue<string>(frontmatter, "timeline");
-            Plot = _frontmatterService.GetValue<string>(frontmatter, "plot");
+            // Parse metadata fields, extracting document names from [[DocumentLink]] syntax
+            Pov = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "pov"));
+            Focus = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "focus"));
+            Timeline = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "timeline"));
+            Plot = ExtractDocumentNameFromLink(_frontmatterService.GetValue<string>(frontmatter, "plot"));
 
             var characters = _frontmatterService.GetValue<List<string>>(frontmatter, "characters");
             if (characters != null)
             {
-                Characters = characters;
+                Characters = characters.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var objects = _frontmatterService.GetValue<List<string>>(frontmatter, "objects");
             if (objects != null)
             {
-                Objects = objects;
+                Objects = objects.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var entities = _frontmatterService.GetValue<List<string>>(frontmatter, "entities");
             if (entities != null)
             {
-                Entities = entities;
+                Entities = entities.Select(ExtractDocumentNameFromLink).ToList();
             }
 
             var mentions = _frontmatterService.GetValue<List<string>>(frontmatter, "mentions");
@@ -416,14 +419,23 @@ public class Document
     public void SaveContent()
     {
         if (string.IsNullOrEmpty(ContentFilePath) || string.IsNullOrEmpty(ProjectDirectory))
+        {
+            Console.WriteLine($"[Document.SaveContent] Skipping save - ContentFilePath: '{ContentFilePath}', ProjectDirectory: '{ProjectDirectory}'");
             return;
+        }
+        
+        Console.WriteLine($"[Document.SaveContent] Saving document '{Title}' (Type: {Type})");
+        Console.WriteLine($"  ContentFilePath: {ContentFilePath}");
+        Console.WriteLine($"  ProjectDirectory: {ProjectDirectory}");
         
         // Normalize path separators - ContentFilePath uses forward slashes, convert to platform-specific
         var normalizedContentPath = ContentFilePath.Replace('/', Path.DirectorySeparatorChar);
         var fullPath = Path.Combine(ProjectDirectory, normalizedContentPath);
+        Console.WriteLine($"[Document.SaveContent] Full path: {fullPath}");
         var directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
+            Console.WriteLine($"[Document.SaveContent] Creating directory: {directory}");
             Directory.CreateDirectory(directory);
         }
         
@@ -444,7 +456,9 @@ public class Document
             fileContent = GenerateRawContent();
         }
         
+        Console.WriteLine($"[Document.SaveContent] Writing {fileContent.Length} characters to file");
         File.WriteAllText(fullPath, fileContent);
+        Console.WriteLine($"[Document.SaveContent] Successfully wrote file: {fullPath}");
     }
 
     /// <summary>
@@ -461,26 +475,27 @@ public class Document
         frontmatter["updated"] = ModifiedAt.ToString("yyyy-MM-dd HH:mm");
 
         // Optional metadata fields (only include if they have values)
+        // Convert document names to [[DocumentLink]] syntax for better UX
         if (!string.IsNullOrEmpty(Pov))
-            frontmatter["pov"] = Pov;
+            frontmatter["pov"] = FormatDocumentNameAsLink(Pov);
 
         if (!string.IsNullOrEmpty(Focus))
-            frontmatter["focus"] = Focus;
+            frontmatter["focus"] = FormatDocumentNameAsLink(Focus);
 
         if (!string.IsNullOrEmpty(Timeline))
-            frontmatter["timeline"] = Timeline;
+            frontmatter["timeline"] = FormatDocumentNameAsLink(Timeline);
 
         if (!string.IsNullOrEmpty(Plot))
-            frontmatter["plot"] = Plot;
+            frontmatter["plot"] = FormatDocumentNameAsLink(Plot);
 
         if (Characters != null && Characters.Count > 0)
-            frontmatter["characters"] = Characters;
+            frontmatter["characters"] = Characters.Select(FormatDocumentNameAsLink).ToList();
 
         if (Objects != null && Objects.Count > 0)
-            frontmatter["objects"] = Objects;
+            frontmatter["objects"] = Objects.Select(FormatDocumentNameAsLink).ToList();
 
         if (Entities != null && Entities.Count > 0)
-            frontmatter["entities"] = Entities;
+            frontmatter["entities"] = Entities.Select(FormatDocumentNameAsLink).ToList();
 
         if (Mentions != null && Mentions.Count > 0)
             frontmatter["mentions"] = Mentions;
@@ -489,6 +504,48 @@ public class Document
             frontmatter["custom"] = Custom;
 
         return frontmatter;
+    }
+
+    /// <summary>
+    /// Extracts document name from [[DocumentLink]] syntax or returns the string as-is.
+    /// </summary>
+    private string ExtractDocumentNameFromLink(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value ?? string.Empty;
+
+        // Check if it's in [[DocumentLink]] format
+        if (value.StartsWith("[[") && value.EndsWith("]]"))
+        {
+            // Extract the document name from [[DocumentName]]
+            var name = value.Substring(2, value.Length - 4).Trim();
+            // Handle [[DocumentName|Display Text]] format - take the first part
+            var pipeIndex = name.IndexOf('|');
+            if (pipeIndex >= 0)
+            {
+                name = name.Substring(0, pipeIndex).Trim();
+            }
+            return name;
+        }
+
+        // Not in link format, return as-is
+        return value;
+    }
+
+    /// <summary>
+    /// Formats a document name as [[DocumentLink]] syntax.
+    /// </summary>
+    private string FormatDocumentNameAsLink(string? documentName)
+    {
+        if (string.IsNullOrWhiteSpace(documentName))
+            return documentName ?? string.Empty;
+
+        // If it's already in [[...]] format, return as-is
+        if (documentName.StartsWith("[[") && documentName.EndsWith("]]"))
+            return documentName;
+
+        // Convert to [[DocumentName]] format
+        return $"[[" + documentName + "]]";
     }
 }
 
@@ -500,5 +557,9 @@ public enum DocumentType
     Research,
     Character,
     Location,
+    Timeline,
+    Plot,
+    Object,
+    Entity,
     Other
 }
